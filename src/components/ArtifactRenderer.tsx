@@ -153,7 +153,8 @@ function cleanReactCode(code: string): CleanedCode {
   if (/\b(motion\.|AnimatePresence|useAnimation|useSpring)\b/.test(code)) {
     usedLibraries.add('framer-motion')
   }
-  if (/\b(ChevronRight|ChevronLeft|ChevronDown|ChevronUp|Menu|X|Search|User|Settings|Home|Star|Heart|Check|Plus|Minus|Edit|Trash|Download|Upload|Mail|Phone|Calendar|Clock|MapPin|Globe|Lock|Unlock|Eye|EyeOff|Bell|AlertCircle|Info|HelpCircle|ArrowRight|ArrowLeft|ArrowUp|ArrowDown|ExternalLink|Copy|Share|Filter|Grid|List|MoreHorizontal|MoreVertical|Loader|RefreshCw|Save|Send|Image|File|Folder|Video|Music|Camera|Mic|Volume|Play|Pause|SkipForward|SkipBack|Maximize|Minimize|Sun|Moon|Cloud|Zap|Award|Gift|ShoppingCart|ShoppingBag|CreditCard|DollarSign|TrendingUp|TrendingDown|Activity|PieChart|BarChart2|LineChart|Brain|Network|MessageSquare|Shield|Sparkles)\b/.test(code)) {
+  // Detección ampliada de iconos de Lucide
+  if (/\b(ChevronRight|ChevronLeft|ChevronDown|ChevronUp|Menu|X|Search|User|Settings|Home|Star|Heart|Check|Plus|Minus|Edit|Trash|Download|Upload|Mail|Phone|Calendar|Clock|MapPin|Globe|Lock|Unlock|Eye|EyeOff|Bell|AlertCircle|Info|HelpCircle|ArrowRight|ArrowLeft|ArrowUp|ArrowDown|ExternalLink|Copy|Share|Filter|Grid|List|MoreHorizontal|MoreVertical|Loader|RefreshCw|Save|Send|Image|File|Folder|Video|Music|Camera|Mic|Volume|Play|Pause|SkipForward|SkipBack|Maximize|Minimize|Sun|Moon|Cloud|Zap|Award|Gift|ShoppingCart|ShoppingBag|CreditCard|DollarSign|TrendingUp|TrendingDown|Activity|PieChart|BarChart2|LineChart|Brain|Network|MessageSquare|Shield|Sparkles|Radio|Mic2|Wand2|Headphones|Users)\b/.test(code)) {
     usedLibraries.add('lucide-react')
   }
   if (/\b_\.(\w+)\(/.test(code) || /\blodash\b/.test(code)) {
@@ -167,6 +168,10 @@ function cleanReactCode(code: string): CleanedCode {
   }
   if (/\baxios\b/.test(code)) {
     usedLibraries.add('axios')
+  }
+  // Detectar shadcn/ui
+  if (/@\/components\/ui\//.test(code) || /\b(Card|CardContent|CardHeader|CardTitle|CardDescription|CardFooter|Button|Badge|Input|Switch|Accordion|AccordionItem|AccordionTrigger|AccordionContent|Dialog|DialogTrigger|DialogContent|DialogHeader|DialogTitle|DialogDescription|Tabs|TabsList|TabsTrigger|TabsContent|Select|SelectTrigger|SelectValue|SelectContent|SelectItem|Slider|Progress|Avatar|AvatarImage|AvatarFallback|Tooltip|TooltipTrigger|TooltipContent|TooltipProvider|Alert|AlertTitle|AlertDescription|Checkbox|Label|Textarea|Separator|ScrollArea|Sheet|SheetTrigger|SheetContent|DropdownMenu|DropdownMenuTrigger|DropdownMenuContent|DropdownMenuItem)\b/.test(code)) {
+    usedLibraries.add('shadcn-ui')
   }
   
   // Extraer nombre del componente - múltiples patrones
@@ -435,7 +440,7 @@ function generateLibraryScripts(libraries: Set<string>): string {
   // Chart.js
   scripts.push('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2"></script>')
   
-  // Lucide React - CORREGIDO: Ahora sí carga desde CDN
+  // Lucide React
   if (libraries.has('lucide-react')) {
     scripts.push('<script src="https://unpkg.com/lucide@0.263.1/dist/umd/lucide.js"></script>')
   }
@@ -446,19 +451,20 @@ function generateLibraryScripts(libraries: Set<string>): string {
 function generateLibrarySetup(libraries: Set<string>): string {
   const setup: string[] = []
   
-  // Lucide icons - CORREGIDO: Crear wrappers de React para los iconos de Lucide
+  // ============================================================================
+  // LUCIDE ICONS - Lista completa de iconos
+  // ============================================================================
   if (libraries.has('lucide-react')) {
     setup.push(`
-    // Lucide React icons setup - FIXED VERSION
+    // Lucide React icons setup - COMPREHENSIVE VERSION
     const createLucideIcon = (iconName) => {
       return (props = {}) => {
-        const { size = 24, color, strokeWidth = 2, className, ...rest } = props;
+        const { size = 24, color, strokeWidth = 2, className, style, ...rest } = props;
         
         // Crear elemento SVG usando lucide.createElement
         if (window.lucide && window.lucide.createElement) {
           const svgElement = window.lucide.createElement(iconName);
           if (svgElement) {
-            // Clonar y aplicar props
             const clonedSvg = svgElement.cloneNode(true);
             clonedSvg.setAttribute('width', size);
             clonedSvg.setAttribute('height', size);
@@ -466,63 +472,831 @@ function generateLibrarySetup(libraries: Set<string>): string {
             if (strokeWidth) clonedSvg.setAttribute('stroke-width', strokeWidth);
             if (className) clonedSvg.setAttribute('class', className);
             
-            // Convertir a React element
             return React.createElement('span', {
               dangerouslySetInnerHTML: { __html: clonedSvg.outerHTML },
-              style: { display: 'inline-flex', ...rest.style }
+              style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', ...style },
+              ...rest
             });
           }
         }
         
-        // Fallback: cuadrado simple
-        return React.createElement('span', {
-          style: {
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: size,
-            height: size,
-            fontSize: '10px',
-            color: color || '#888',
-            ...rest.style
-          },
-          className
-        }, '□');
+        // Fallback: SVG placeholder
+        return React.createElement('svg', {
+          width: size,
+          height: size,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: color || 'currentColor',
+          strokeWidth: strokeWidth,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          className,
+          style,
+          ...rest
+        }, React.createElement('circle', { cx: 12, cy: 12, r: 10 }));
       };
     };
     
-    // Lista de iconos usados comúnmente
+    // Lista COMPLETA de iconos de Lucide
     const iconNames = [
-      'Brain', 'Zap', 'Network', 'MessageSquare', 'TrendingUp', 'Shield', 'Sparkles',
+      // Navigation & Arrows
       'ChevronRight', 'ChevronLeft', 'ChevronDown', 'ChevronUp',
+      'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown',
+      'ArrowUpRight', 'ArrowDownRight', 'ArrowUpLeft', 'ArrowDownLeft',
+      'ChevronsUp', 'ChevronsDown', 'ChevronsLeft', 'ChevronsRight',
+      'CornerDownLeft', 'CornerDownRight', 'CornerUpLeft', 'CornerUpRight',
+      'MoveUp', 'MoveDown', 'MoveLeft', 'MoveRight',
+      
+      // Common UI
       'Menu', 'X', 'Search', 'User', 'Settings', 'Home',
-      'Star', 'Heart', 'Check', 'Plus', 'Minus', 'Edit', 'Trash',
+      'Star', 'Heart', 'Check', 'Plus', 'Minus', 'Edit', 'Trash', 'Trash2',
       'Download', 'Upload', 'Mail', 'Phone', 'Calendar', 'Clock',
       'MapPin', 'Globe', 'Lock', 'Unlock', 'Eye', 'EyeOff',
-      'Bell', 'AlertCircle', 'Info', 'HelpCircle',
-      'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown',
-      'ExternalLink', 'Copy', 'Share', 'Filter', 'Grid', 'List',
-      'MoreHorizontal', 'MoreVertical', 'Loader', 'RefreshCw',
-      'Save', 'Send', 'Image', 'File', 'Folder', 'Video', 'Music',
-      'Camera', 'Mic', 'Volume', 'Play', 'Pause', 'SkipForward', 'SkipBack',
-      'Maximize', 'Minimize', 'Sun', 'Moon', 'Cloud',
-      'Award', 'Gift', 'ShoppingCart', 'ShoppingBag', 'CreditCard', 'DollarSign',
-      'Activity', 'PieChart', 'BarChart2', 'LineChart',
-      'Circle', 'Square', 'Triangle', 'Hexagon', 'Bookmark', 'Flag',
-      'MessageCircle', 'ThumbsUp', 'ThumbsDown',
-      'Smile', 'Frown', 'Meh', 'AlertTriangle', 'CheckCircle', 'XCircle'
+      'Bell', 'BellOff', 'AlertCircle', 'AlertTriangle', 'Info', 'HelpCircle',
+      'ExternalLink', 'Copy', 'Share', 'Share2', 'Filter', 'Grid', 'List',
+      'MoreHorizontal', 'MoreVertical', 'Loader', 'Loader2', 'RefreshCw', 'RefreshCcw',
+      'Save', 'Send', 'Image', 'File', 'FileText', 'Folder', 'FolderOpen',
+      'Video', 'Music', 'Music2', 'Music3', 'Music4',
+      'Camera', 'Mic', 'Mic2', 'MicOff', 'Volume', 'Volume1', 'Volume2', 'VolumeX',
+      'Play', 'Pause', 'Square', 'Circle', 'SkipForward', 'SkipBack',
+      'FastForward', 'Rewind', 'Repeat', 'Shuffle',
+      'Maximize', 'Maximize2', 'Minimize', 'Minimize2', 'Expand', 'Shrink',
+      'Sun', 'Moon', 'Cloud', 'CloudRain', 'CloudSnow', 'Wind', 'Umbrella',
+      
+      // Business & Finance
+      'Zap', 'Award', 'Gift', 'ShoppingCart', 'ShoppingBag', 'CreditCard', 'DollarSign',
+      'TrendingUp', 'TrendingDown', 'Activity', 'PieChart', 'BarChart', 'BarChart2', 'BarChart3', 'LineChart',
+      'Briefcase', 'Building', 'Building2', 'Store', 'Wallet', 'Receipt', 'Tag', 'Tags', 'Percent',
+      
+      // Technology & AI
+      'Brain', 'Network', 'Cpu', 'Database', 'Server', 'HardDrive', 'Wifi', 'WifiOff',
+      'Bluetooth', 'Cast', 'Smartphone', 'Tablet', 'Laptop', 'Monitor', 'Tv', 'Speaker',
+      'Code', 'Code2', 'Terminal', 'GitBranch', 'GitCommit', 'GitMerge', 'GitPullRequest',
+      
+      // Communication
+      'MessageSquare', 'MessageCircle', 'Mail', 'Inbox', 'Send', 'AtSign',
+      'Phone', 'PhoneCall', 'PhoneOff', 'PhoneIncoming', 'PhoneOutgoing',
+      'Video', 'VideoOff', 'Voicemail',
+      
+      // Media & Audio
+      'Radio', 'Headphones', 'Disc', 'Film', 'Clapperboard', 'Aperture',
+      'ImagePlus', 'ImageMinus', 'Images', 'Palette', 'Pipette', 'Brush', 'PenTool',
+      
+      // Security & Privacy
+      'Shield', 'ShieldCheck', 'ShieldAlert', 'ShieldOff', 'ShieldQuestion',
+      'Key', 'KeyRound', 'Fingerprint', 'Scan', 'ScanLine',
+      
+      // People & Social
+      'Users', 'UserPlus', 'UserMinus', 'UserCheck', 'UserX', 'UserCog',
+      'Contact', 'Contact2', 'PersonStanding', 'Accessibility',
+      'ThumbsUp', 'ThumbsDown', 'Smile', 'Frown', 'Meh', 'Angry', 'Laugh',
+      
+      // Objects
+      'Lightbulb', 'Lamp', 'LampDesk', 'LampFloor',
+      'Book', 'BookOpen', 'BookMarked', 'Bookmark', 'BookmarkPlus', 'BookmarkMinus',
+      'Newspaper', 'Scroll', 'FileSignature', 'ClipboardList', 'ClipboardCheck',
+      'Package', 'Box', 'Archive', 'Truck', 'Plane', 'Car', 'Train', 'Ship', 'Bike',
+      'Coffee', 'Utensils', 'Pizza', 'Apple', 'Cake', 'Wine', 'Beer', 'Martini',
+      
+      // Shapes & Design
+      'Circle', 'Square', 'Triangle', 'Hexagon', 'Octagon', 'Pentagon',
+      'Diamond', 'Heart', 'Star', 'Sparkle', 'Sparkles', 'Wand', 'Wand2',
+      'Flag', 'Bookmark', 'Pin', 'MapPin',
+      
+      // Actions
+      'CheckCircle', 'CheckCircle2', 'XCircle', 'PlusCircle', 'MinusCircle',
+      'CheckSquare', 'XSquare', 'PlusSquare', 'MinusSquare',
+      'RotateCw', 'RotateCcw', 'FlipHorizontal', 'FlipVertical',
+      'ZoomIn', 'ZoomOut', 'Move', 'Grab', 'Hand', 'Pointer', 'MousePointer',
+      
+      // Misc
+      'Hash', 'Link', 'Link2', 'Unlink', 'Paperclip', 'Scissors', 'Slice',
+      'Type', 'Bold', 'Italic', 'Underline', 'Strikethrough',
+      'AlignLeft', 'AlignCenter', 'AlignRight', 'AlignJustify',
+      'ListOrdered', 'ListTodo', 'ListChecks', 'ListX',
+      'Table', 'Table2', 'Columns', 'Rows', 'LayoutGrid', 'LayoutList',
+      'Layers', 'Component', 'Box', 'Boxes', 'Package', 'Puzzle',
+      'Timer', 'TimerOff', 'TimerReset', 'Hourglass', 'History', 'Undo', 'Redo',
+      'Slash', 'Asterisk', 'Command', 'Option', 'Delete', 'CornerUpLeft',
+      'LogIn', 'LogOut', 'Power', 'PowerOff', 'ToggleLeft', 'ToggleRight',
+      'QrCode', 'Barcode', 'Binary', 'Braces', 'Parentheses', 'Brackets'
     ];
     
     // Crear componentes React para cada icono
     iconNames.forEach(name => {
-      // Convertir de PascalCase a kebab-case para lucide
       const kebabName = name.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
       window[name] = createLucideIcon(kebabName);
     });
   `)
   }
   
-  // Recharts
+  // ============================================================================
+  // SHADCN/UI COMPONENTS - Implementaciones completas
+  // ============================================================================
+  if (libraries.has('shadcn-ui')) {
+    setup.push(`
+    // ============================================================================
+    // SHADCN/UI COMPONENTS - Full Implementation
+    // ============================================================================
+    
+    // Utility function for className merging
+    const cn = (...classes) => classes.filter(Boolean).join(' ');
+    window.cn = cn;
+    
+    // ----------------------------------------------------------------------------
+    // CARD COMPONENTS
+    // ----------------------------------------------------------------------------
+    const Card = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn(
+          'rounded-xl border border-neutral-200 bg-white text-neutral-950 shadow dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-50',
+          className
+        ),
+        ...props
+      });
+    });
+    Card.displayName = 'Card';
+    window.Card = Card;
+    
+    const CardHeader = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn('flex flex-col space-y-1.5 p-6', className),
+        ...props
+      });
+    });
+    CardHeader.displayName = 'CardHeader';
+    window.CardHeader = CardHeader;
+    
+    const CardTitle = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('h3', {
+        ref,
+        className: cn('font-semibold leading-none tracking-tight', className),
+        ...props
+      });
+    });
+    CardTitle.displayName = 'CardTitle';
+    window.CardTitle = CardTitle;
+    
+    const CardDescription = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('p', {
+        ref,
+        className: cn('text-sm text-neutral-500 dark:text-neutral-400', className),
+        ...props
+      });
+    });
+    CardDescription.displayName = 'CardDescription';
+    window.CardDescription = CardDescription;
+    
+    const CardContent = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn('p-6 pt-0', className),
+        ...props
+      });
+    });
+    CardContent.displayName = 'CardContent';
+    window.CardContent = CardContent;
+    
+    const CardFooter = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn('flex items-center p-6 pt-0', className),
+        ...props
+      });
+    });
+    CardFooter.displayName = 'CardFooter';
+    window.CardFooter = CardFooter;
+    
+    // ----------------------------------------------------------------------------
+    // BUTTON COMPONENT
+    // ----------------------------------------------------------------------------
+    const buttonVariants = {
+      default: 'bg-neutral-900 text-neutral-50 shadow hover:bg-neutral-900/90 dark:bg-neutral-50 dark:text-neutral-900 dark:hover:bg-neutral-50/90',
+      destructive: 'bg-red-500 text-neutral-50 shadow-sm hover:bg-red-500/90 dark:bg-red-900 dark:text-neutral-50 dark:hover:bg-red-900/90',
+      outline: 'border border-neutral-200 bg-white shadow-sm hover:bg-neutral-100 hover:text-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-800 dark:hover:text-neutral-50',
+      secondary: 'bg-neutral-100 text-neutral-900 shadow-sm hover:bg-neutral-100/80 dark:bg-neutral-800 dark:text-neutral-50 dark:hover:bg-neutral-800/80',
+      ghost: 'hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-50',
+      link: 'text-neutral-900 underline-offset-4 hover:underline dark:text-neutral-50',
+    };
+    
+    const buttonSizes = {
+      default: 'h-9 px-4 py-2',
+      sm: 'h-8 rounded-md px-3 text-xs',
+      lg: 'h-10 rounded-md px-8',
+      icon: 'h-9 w-9',
+    };
+    
+    const Button = React.forwardRef(({ 
+      className, 
+      variant = 'default', 
+      size = 'default', 
+      asChild = false,
+      ...props 
+    }, ref) => {
+      return React.createElement('button', {
+        ref,
+        className: cn(
+          'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-950 disabled:pointer-events-none disabled:opacity-50 dark:focus-visible:ring-neutral-300',
+          buttonVariants[variant] || buttonVariants.default,
+          buttonSizes[size] || buttonSizes.default,
+          className
+        ),
+        ...props
+      });
+    });
+    Button.displayName = 'Button';
+    window.Button = Button;
+    
+    // ----------------------------------------------------------------------------
+    // BADGE COMPONENT
+    // ----------------------------------------------------------------------------
+    const badgeVariants = {
+      default: 'border-transparent bg-neutral-900 text-neutral-50 shadow hover:bg-neutral-900/80 dark:bg-neutral-50 dark:text-neutral-900 dark:hover:bg-neutral-50/80',
+      secondary: 'border-transparent bg-neutral-100 text-neutral-900 hover:bg-neutral-100/80 dark:bg-neutral-800 dark:text-neutral-50 dark:hover:bg-neutral-800/80',
+      destructive: 'border-transparent bg-red-500 text-neutral-50 shadow hover:bg-red-500/80 dark:bg-red-900 dark:text-neutral-50 dark:hover:bg-red-900/80',
+      outline: 'text-neutral-950 dark:text-neutral-50',
+    };
+    
+    const Badge = React.forwardRef(({ className, variant = 'default', ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn(
+          'inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-950 focus:ring-offset-2 dark:focus:ring-neutral-300',
+          badgeVariants[variant] || badgeVariants.default,
+          className
+        ),
+        ...props
+      });
+    });
+    Badge.displayName = 'Badge';
+    window.Badge = Badge;
+    
+    // ----------------------------------------------------------------------------
+    // INPUT COMPONENT
+    // ----------------------------------------------------------------------------
+    const Input = React.forwardRef(({ className, type = 'text', ...props }, ref) => {
+      return React.createElement('input', {
+        ref,
+        type,
+        className: cn(
+          'flex h-9 w-full rounded-md border border-neutral-200 bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-neutral-950 placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-800 dark:file:text-neutral-50 dark:placeholder:text-neutral-400 dark:focus-visible:ring-neutral-300',
+          className
+        ),
+        ...props
+      });
+    });
+    Input.displayName = 'Input';
+    window.Input = Input;
+    
+    // ----------------------------------------------------------------------------
+    // TEXTAREA COMPONENT
+    // ----------------------------------------------------------------------------
+    const Textarea = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('textarea', {
+        ref,
+        className: cn(
+          'flex min-h-[60px] w-full rounded-md border border-neutral-200 bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-800 dark:placeholder:text-neutral-400 dark:focus-visible:ring-neutral-300',
+          className
+        ),
+        ...props
+      });
+    });
+    Textarea.displayName = 'Textarea';
+    window.Textarea = Textarea;
+    
+    // ----------------------------------------------------------------------------
+    // LABEL COMPONENT
+    // ----------------------------------------------------------------------------
+    const Label = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('label', {
+        ref,
+        className: cn(
+          'text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70',
+          className
+        ),
+        ...props
+      });
+    });
+    Label.displayName = 'Label';
+    window.Label = Label;
+    
+    // ----------------------------------------------------------------------------
+    // SWITCH COMPONENT
+    // ----------------------------------------------------------------------------
+    const Switch = React.forwardRef(({ className, checked, onCheckedChange, ...props }, ref) => {
+      return React.createElement('button', {
+        ref,
+        role: 'switch',
+        'aria-checked': checked,
+        onClick: () => onCheckedChange && onCheckedChange(!checked),
+        className: cn(
+          'peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50',
+          checked ? 'bg-neutral-900 dark:bg-neutral-50' : 'bg-neutral-200 dark:bg-neutral-800',
+          className
+        ),
+        ...props
+      }, React.createElement('span', {
+        className: cn(
+          'pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform dark:bg-neutral-950',
+          checked ? 'translate-x-4' : 'translate-x-0'
+        )
+      }));
+    });
+    Switch.displayName = 'Switch';
+    window.Switch = Switch;
+    
+    // ----------------------------------------------------------------------------
+    // CHECKBOX COMPONENT
+    // ----------------------------------------------------------------------------
+    const Checkbox = React.forwardRef(({ className, checked, onCheckedChange, ...props }, ref) => {
+      return React.createElement('button', {
+        ref,
+        role: 'checkbox',
+        'aria-checked': checked,
+        onClick: () => onCheckedChange && onCheckedChange(!checked),
+        className: cn(
+          'peer h-4 w-4 shrink-0 rounded-sm border border-neutral-900 shadow focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-50 dark:focus-visible:ring-neutral-300',
+          checked && 'bg-neutral-900 text-neutral-50 dark:bg-neutral-50 dark:text-neutral-900',
+          className
+        ),
+        ...props
+      }, checked && React.createElement('span', { className: 'flex items-center justify-center text-current' },
+        React.createElement('svg', { 
+          width: 10, 
+          height: 10, 
+          viewBox: '0 0 24 24', 
+          fill: 'none', 
+          stroke: 'currentColor', 
+          strokeWidth: 3 
+        }, React.createElement('polyline', { points: '20 6 9 17 4 12' }))
+      ));
+    });
+    Checkbox.displayName = 'Checkbox';
+    window.Checkbox = Checkbox;
+    
+    // ----------------------------------------------------------------------------
+    // SEPARATOR COMPONENT
+    // ----------------------------------------------------------------------------
+    const Separator = React.forwardRef(({ className, orientation = 'horizontal', decorative = true, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        role: decorative ? 'none' : 'separator',
+        'aria-orientation': decorative ? undefined : orientation,
+        className: cn(
+          'shrink-0 bg-neutral-200 dark:bg-neutral-800',
+          orientation === 'horizontal' ? 'h-[1px] w-full' : 'h-full w-[1px]',
+          className
+        ),
+        ...props
+      });
+    });
+    Separator.displayName = 'Separator';
+    window.Separator = Separator;
+    
+    // ----------------------------------------------------------------------------
+    // PROGRESS COMPONENT
+    // ----------------------------------------------------------------------------
+    const Progress = React.forwardRef(({ className, value = 0, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn('relative h-2 w-full overflow-hidden rounded-full bg-neutral-900/20 dark:bg-neutral-50/20', className),
+        ...props
+      }, React.createElement('div', {
+        className: 'h-full w-full flex-1 bg-neutral-900 transition-all dark:bg-neutral-50',
+        style: { transform: \`translateX(-\${100 - (value || 0)}%)\` }
+      }));
+    });
+    Progress.displayName = 'Progress';
+    window.Progress = Progress;
+    
+    // ----------------------------------------------------------------------------
+    // SLIDER COMPONENT
+    // ----------------------------------------------------------------------------
+    const Slider = React.forwardRef(({ className, value = [0], onValueChange, min = 0, max = 100, step = 1, ...props }, ref) => {
+      const percentage = ((value[0] - min) / (max - min)) * 100;
+      
+      return React.createElement('div', {
+        ref,
+        className: cn('relative flex w-full touch-none select-none items-center', className),
+        ...props
+      },
+        React.createElement('div', {
+          className: 'relative h-1.5 w-full grow overflow-hidden rounded-full bg-neutral-900/20 dark:bg-neutral-50/20'
+        },
+          React.createElement('div', {
+            className: 'absolute h-full bg-neutral-900 dark:bg-neutral-50',
+            style: { width: \`\${percentage}%\` }
+          })
+        ),
+        React.createElement('input', {
+          type: 'range',
+          min,
+          max,
+          step,
+          value: value[0],
+          onChange: (e) => onValueChange && onValueChange([parseFloat(e.target.value)]),
+          className: 'absolute w-full h-full opacity-0 cursor-pointer'
+        })
+      );
+    });
+    Slider.displayName = 'Slider';
+    window.Slider = Slider;
+    
+    // ----------------------------------------------------------------------------
+    // ACCORDION COMPONENTS
+    // ----------------------------------------------------------------------------
+    const AccordionContext = React.createContext({ openItems: [], toggleItem: () => {}, type: 'single' });
+    
+    const Accordion = ({ children, type = 'single', collapsible = false, defaultValue, className, ...props }) => {
+      const [openItems, setOpenItems] = React.useState(
+        defaultValue ? (Array.isArray(defaultValue) ? defaultValue : [defaultValue]) : []
+      );
+      
+      const toggleItem = (value) => {
+        if (type === 'single') {
+          setOpenItems(prev => {
+            if (prev.includes(value)) {
+              return collapsible ? [] : prev;
+            }
+            return [value];
+          });
+        } else {
+          setOpenItems(prev => 
+            prev.includes(value) 
+              ? prev.filter(v => v !== value)
+              : [...prev, value]
+          );
+        }
+      };
+      
+      return React.createElement(AccordionContext.Provider, {
+        value: { openItems, toggleItem, type }
+      }, React.createElement('div', { className: cn('', className), ...props }, children));
+    };
+    window.Accordion = Accordion;
+    
+    const AccordionItem = React.forwardRef(({ children, value, className, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        'data-value': value,
+        className: cn('border-b', className),
+        ...props
+      }, React.Children.map(children, child => 
+        React.isValidElement(child) ? React.cloneElement(child, { itemValue: value }) : child
+      ));
+    });
+    AccordionItem.displayName = 'AccordionItem';
+    window.AccordionItem = AccordionItem;
+    
+    const AccordionTrigger = React.forwardRef(({ children, className, itemValue, ...props }, ref) => {
+      const { openItems, toggleItem } = React.useContext(AccordionContext);
+      const isOpen = openItems.includes(itemValue);
+      
+      return React.createElement('h3', { className: 'flex' },
+        React.createElement('button', {
+          ref,
+          type: 'button',
+          onClick: () => toggleItem(itemValue),
+          'aria-expanded': isOpen,
+          className: cn(
+            'flex flex-1 items-center justify-between py-4 text-sm font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180',
+            className
+          ),
+          'data-state': isOpen ? 'open' : 'closed',
+          ...props
+        }, children, 
+          React.createElement('svg', {
+            width: 16,
+            height: 16,
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: 2,
+            className: cn('h-4 w-4 shrink-0 text-neutral-500 transition-transform duration-200', isOpen && 'rotate-180')
+          }, React.createElement('path', { d: 'M6 9l6 6 6-6' }))
+        )
+      );
+    });
+    AccordionTrigger.displayName = 'AccordionTrigger';
+    window.AccordionTrigger = AccordionTrigger;
+    
+    const AccordionContent = React.forwardRef(({ children, className, itemValue, ...props }, ref) => {
+      const { openItems } = React.useContext(AccordionContext);
+      const isOpen = openItems.includes(itemValue);
+      
+      if (!isOpen) return null;
+      
+      return React.createElement('div', {
+        ref,
+        className: cn('overflow-hidden text-sm', className),
+        'data-state': isOpen ? 'open' : 'closed',
+        ...props
+      }, React.createElement('div', { className: 'pb-4 pt-0' }, children));
+    });
+    AccordionContent.displayName = 'AccordionContent';
+    window.AccordionContent = AccordionContent;
+    
+    // ----------------------------------------------------------------------------
+    // AVATAR COMPONENTS
+    // ----------------------------------------------------------------------------
+    const Avatar = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('span', {
+        ref,
+        className: cn('relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full', className),
+        ...props
+      });
+    });
+    Avatar.displayName = 'Avatar';
+    window.Avatar = Avatar;
+    
+    const AvatarImage = React.forwardRef(({ className, src, alt, ...props }, ref) => {
+      const [hasError, setHasError] = React.useState(false);
+      
+      if (hasError || !src) return null;
+      
+      return React.createElement('img', {
+        ref,
+        src,
+        alt,
+        onError: () => setHasError(true),
+        className: cn('aspect-square h-full w-full', className),
+        ...props
+      });
+    });
+    AvatarImage.displayName = 'AvatarImage';
+    window.AvatarImage = AvatarImage;
+    
+    const AvatarFallback = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('span', {
+        ref,
+        className: cn('flex h-full w-full items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800', className),
+        ...props
+      });
+    });
+    AvatarFallback.displayName = 'AvatarFallback';
+    window.AvatarFallback = AvatarFallback;
+    
+    // ----------------------------------------------------------------------------
+    // ALERT COMPONENTS
+    // ----------------------------------------------------------------------------
+    const alertVariants = {
+      default: 'bg-white text-neutral-950 dark:bg-neutral-950 dark:text-neutral-50',
+      destructive: 'border-red-500/50 text-red-500 dark:border-red-500 [&>svg]:text-red-500 dark:border-red-900/50 dark:text-red-900 dark:dark:border-red-900 dark:[&>svg]:text-red-900',
+    };
+    
+    const Alert = React.forwardRef(({ className, variant = 'default', ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        role: 'alert',
+        className: cn(
+          'relative w-full rounded-lg border px-4 py-3 text-sm [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-neutral-950 [&>svg~*]:pl-7 dark:[&>svg]:text-neutral-50',
+          alertVariants[variant],
+          className
+        ),
+        ...props
+      });
+    });
+    Alert.displayName = 'Alert';
+    window.Alert = Alert;
+    
+    const AlertTitle = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('h5', {
+        ref,
+        className: cn('mb-1 font-medium leading-none tracking-tight', className),
+        ...props
+      });
+    });
+    AlertTitle.displayName = 'AlertTitle';
+    window.AlertTitle = AlertTitle;
+    
+    const AlertDescription = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn('text-sm [&_p]:leading-relaxed', className),
+        ...props
+      });
+    });
+    AlertDescription.displayName = 'AlertDescription';
+    window.AlertDescription = AlertDescription;
+    
+    // ----------------------------------------------------------------------------
+    // TABS COMPONENTS
+    // ----------------------------------------------------------------------------
+    const TabsContext = React.createContext({ value: '', onValueChange: () => {} });
+    
+    const Tabs = ({ children, defaultValue, value: controlledValue, onValueChange, className, ...props }) => {
+      const [internalValue, setInternalValue] = React.useState(defaultValue || '');
+      const value = controlledValue !== undefined ? controlledValue : internalValue;
+      
+      const handleValueChange = (newValue) => {
+        if (controlledValue === undefined) {
+          setInternalValue(newValue);
+        }
+        onValueChange && onValueChange(newValue);
+      };
+      
+      return React.createElement(TabsContext.Provider, {
+        value: { value, onValueChange: handleValueChange }
+      }, React.createElement('div', { className: cn('', className), ...props }, children));
+    };
+    window.Tabs = Tabs;
+    
+    const TabsList = React.forwardRef(({ className, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn(
+          'inline-flex h-9 items-center justify-center rounded-lg bg-neutral-100 p-1 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
+          className
+        ),
+        ...props
+      });
+    });
+    TabsList.displayName = 'TabsList';
+    window.TabsList = TabsList;
+    
+    const TabsTrigger = React.forwardRef(({ className, value: triggerValue, ...props }, ref) => {
+      const { value, onValueChange } = React.useContext(TabsContext);
+      const isActive = value === triggerValue;
+      
+      return React.createElement('button', {
+        ref,
+        onClick: () => onValueChange(triggerValue),
+        className: cn(
+          'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:ring-offset-neutral-950 dark:focus-visible:ring-neutral-300',
+          isActive && 'bg-white text-neutral-950 shadow dark:bg-neutral-950 dark:text-neutral-50',
+          className
+        ),
+        'data-state': isActive ? 'active' : 'inactive',
+        ...props
+      });
+    });
+    TabsTrigger.displayName = 'TabsTrigger';
+    window.TabsTrigger = TabsTrigger;
+    
+    const TabsContent = React.forwardRef(({ className, value: contentValue, ...props }, ref) => {
+      const { value } = React.useContext(TabsContext);
+      
+      if (value !== contentValue) return null;
+      
+      return React.createElement('div', {
+        ref,
+        className: cn(
+          'mt-2 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950 focus-visible:ring-offset-2 dark:ring-offset-neutral-950 dark:focus-visible:ring-neutral-300',
+          className
+        ),
+        ...props
+      });
+    });
+    TabsContent.displayName = 'TabsContent';
+    window.TabsContent = TabsContent;
+    
+    // ----------------------------------------------------------------------------
+    // TOOLTIP COMPONENTS (simplified)
+    // ----------------------------------------------------------------------------
+    const TooltipProvider = ({ children }) => children;
+    window.TooltipProvider = TooltipProvider;
+    
+    const Tooltip = ({ children }) => children;
+    window.Tooltip = Tooltip;
+    
+    const TooltipTrigger = React.forwardRef(({ children, asChild, ...props }, ref) => {
+      return React.createElement('span', { ref, ...props }, children);
+    });
+    TooltipTrigger.displayName = 'TooltipTrigger';
+    window.TooltipTrigger = TooltipTrigger;
+    
+    const TooltipContent = React.forwardRef(({ className, sideOffset = 4, ...props }, ref) => {
+      // Simplified: just render nothing or a span (real implementation needs positioning)
+      return null;
+    });
+    TooltipContent.displayName = 'TooltipContent';
+    window.TooltipContent = TooltipContent;
+    
+    // ----------------------------------------------------------------------------
+    // SCROLL AREA (simplified)
+    // ----------------------------------------------------------------------------
+    const ScrollArea = React.forwardRef(({ className, children, ...props }, ref) => {
+      return React.createElement('div', {
+        ref,
+        className: cn('relative overflow-auto', className),
+        ...props
+      }, children);
+    });
+    ScrollArea.displayName = 'ScrollArea';
+    window.ScrollArea = ScrollArea;
+    
+    // ----------------------------------------------------------------------------
+    // SELECT COMPONENTS (simplified)
+    // ----------------------------------------------------------------------------
+    const SelectContext = React.createContext({ value: '', onValueChange: () => {}, open: false, setOpen: () => {} });
+    
+    const Select = ({ children, value, onValueChange, defaultValue }) => {
+      const [internalValue, setInternalValue] = React.useState(defaultValue || '');
+      const [open, setOpen] = React.useState(false);
+      const currentValue = value !== undefined ? value : internalValue;
+      
+      const handleValueChange = (newValue) => {
+        if (value === undefined) {
+          setInternalValue(newValue);
+        }
+        onValueChange && onValueChange(newValue);
+        setOpen(false);
+      };
+      
+      return React.createElement(SelectContext.Provider, {
+        value: { value: currentValue, onValueChange: handleValueChange, open, setOpen }
+      }, React.createElement('div', { className: 'relative inline-block' }, children));
+    };
+    window.Select = Select;
+    
+    const SelectTrigger = React.forwardRef(({ className, children, ...props }, ref) => {
+      const { setOpen, open } = React.useContext(SelectContext);
+      
+      return React.createElement('button', {
+        ref,
+        type: 'button',
+        onClick: () => setOpen(!open),
+        className: cn(
+          'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-neutral-200 bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-white placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-800 dark:ring-offset-neutral-950 dark:placeholder:text-neutral-400 dark:focus:ring-neutral-300 [&>span]:line-clamp-1',
+          className
+        ),
+        ...props
+      }, children,
+        React.createElement('svg', {
+          width: 16,
+          height: 16,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 2,
+          className: 'h-4 w-4 opacity-50'
+        }, React.createElement('path', { d: 'M6 9l6 6 6-6' }))
+      );
+    });
+    SelectTrigger.displayName = 'SelectTrigger';
+    window.SelectTrigger = SelectTrigger;
+    
+    const SelectValue = ({ placeholder }) => {
+      const { value } = React.useContext(SelectContext);
+      return React.createElement('span', {}, value || placeholder);
+    };
+    window.SelectValue = SelectValue;
+    
+    const SelectContent = React.forwardRef(({ className, children, ...props }, ref) => {
+      const { open } = React.useContext(SelectContext);
+      
+      if (!open) return null;
+      
+      return React.createElement('div', {
+        ref,
+        className: cn(
+          'absolute z-50 mt-1 max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-white text-neutral-950 shadow-md dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-50',
+          className
+        ),
+        ...props
+      }, React.createElement('div', { className: 'p-1' }, children));
+    });
+    SelectContent.displayName = 'SelectContent';
+    window.SelectContent = SelectContent;
+    
+    const SelectItem = React.forwardRef(({ className, children, value: itemValue, ...props }, ref) => {
+      const { value, onValueChange } = React.useContext(SelectContext);
+      const isSelected = value === itemValue;
+      
+      return React.createElement('div', {
+        ref,
+        onClick: () => onValueChange(itemValue),
+        className: cn(
+          'relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none hover:bg-neutral-100 focus:bg-neutral-100 dark:hover:bg-neutral-800 dark:focus:bg-neutral-800',
+          isSelected && 'bg-neutral-100 dark:bg-neutral-800',
+          className
+        ),
+        ...props
+      }, children,
+        isSelected && React.createElement('span', {
+          className: 'absolute right-2 flex h-3.5 w-3.5 items-center justify-center'
+        }, React.createElement('svg', {
+          width: 12,
+          height: 12,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 3
+        }, React.createElement('polyline', { points: '20 6 9 17 4 12' })))
+      );
+    });
+    SelectItem.displayName = 'SelectItem';
+    window.SelectItem = SelectItem;
+    
+    console.log('shadcn/ui components loaded successfully');
+  `)
+  }
+  
+  // ============================================================================
+  // RECHARTS
+  // ============================================================================
   setup.push(`
     // Recharts setup
     const Recharts = window.Recharts || {};
@@ -542,7 +1316,9 @@ function generateLibrarySetup(libraries: Set<string>): string {
     });
   `)
   
-  // Framer Motion
+  // ============================================================================
+  // FRAMER MOTION
+  // ============================================================================
   setup.push(`
     // Framer Motion setup
     const FramerMotion = window.Motion || {};
@@ -555,33 +1331,45 @@ function generateLibrarySetup(libraries: Set<string>): string {
       window.useTransform = FramerMotion.useTransform;
     } else {
       // Fallback: crear motion como componente normal sin animación
-      window.motion = new Proxy({}, {
+      const createMotionComponent = (tag) => {
+        return React.forwardRef((props, ref) => {
+          const { 
+            initial, animate, exit, whileHover, whileTap, whileFocus, whileInView,
+            transition, variants, drag, dragConstraints, onDragStart, onDragEnd,
+            layout, layoutId,
+            ...rest 
+          } = props;
+          return React.createElement(tag, { ref, ...rest });
+        });
+      };
+      
+      const motionProxy = new Proxy({}, {
         get: (target, prop) => {
-          return (props) => React.createElement(prop, {
-            ...props,
-            initial: undefined,
-            animate: undefined,
-            exit: undefined,
-            whileHover: undefined,
-            whileTap: undefined,
-            transition: undefined
-          });
+          if (typeof prop === 'string') {
+            return createMotionComponent(prop);
+          }
+          return undefined;
         }
       });
-      window.AnimatePresence = ({ children }) => children;
+      
+      window.motion = motionProxy;
+      window.AnimatePresence = ({ children, mode, initial }) => children;
+      window.useAnimation = () => ({ start: () => Promise.resolve(), stop: () => {} });
+      window.useMotionValue = (initial) => ({ get: () => initial, set: () => {} });
+      window.useSpring = (value) => value;
+      window.useTransform = (value, input, output) => value;
     }
   `)
   
-  // Lodash
+  // ============================================================================
+  // OTHER UTILITIES
+  // ============================================================================
   setup.push(`
     // Lodash setup
     if (window._) {
       window.lodash = window._;
     }
-  `)
-  
-  // date-fns
-  setup.push(`
+    
     // date-fns setup
     if (window.dateFns) {
       window.format = window.dateFns.format;
@@ -595,30 +1383,28 @@ function generateLibrarySetup(libraries: Set<string>): string {
       window.formatDistance = window.dateFns.formatDistance;
       window.formatRelative = window.dateFns.formatRelative;
     }
-  `)
-  
-  // UUID
-  setup.push(`
+    
     // UUID setup  
     if (window.uuid) {
       window.v4 = window.uuid.v4;
       window.uuidv4 = window.uuid.v4;
     } else {
-      // Fallback simple
       window.v4 = window.uuidv4 = () => 
         'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
           const r = Math.random() * 16 | 0;
           return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
         });
     }
-  `)
-  
-  // cn utility (shadcn pattern)
-  setup.push(`
-    // cn utility for className merging (common in shadcn/ui)
-    window.cn = (...classes) => classes.filter(Boolean).join(' ');
+    
+    // cn utility (shadcn pattern)
+    if (!window.cn) {
+      window.cn = (...classes) => classes.filter(Boolean).join(' ');
+    }
     window.clsx = window.cn;
     window.classNames = window.cn;
+    
+    // twMerge simple implementation
+    window.twMerge = (...classes) => classes.filter(Boolean).join(' ');
   `)
   
   return setup.join('\n')
