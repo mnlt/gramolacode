@@ -1,12 +1,10 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo } from 'react'
 
 interface ArtifactRendererProps {
   code: string
 }
 
 export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
-  const [error, setError] = useState<string | null>(null)
-
   const iframeContent = useMemo(() => {
     try {
       const trimmedCode = code.trim()
@@ -249,7 +247,7 @@ function generateReactHTML(code: string): string {
   
   // Generar scripts de librerías necesarias
   const libraryScripts = generateLibraryScripts(usedLibraries)
-  const librarySetup = generateLibrarySetup(usedLibraries)
+  const librarySetup = generateLibrarySetup()
 
   return `<!DOCTYPE html>
 <html>
@@ -436,13 +434,10 @@ function generateLibraryScripts(libraries: Set<string>): string {
   // Chart.js
   scripts.push('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2"></script>')
   
-  // NO cargar lucide-react desde CDN - crearemos los iconos manualmente
-  // La versión UMD de lucide-react tiene problemas de compatibilidad
-  
   return scripts.join('\n  ')
 }
 
-function generateLibrarySetup(libraries: Set<string>): string {
+function generateLibrarySetup(): string {
   const setup: string[] = []
   
   // Lucide icons - crear objeto con todos los iconos comunes
