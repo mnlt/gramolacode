@@ -1,10 +1,12 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 
 interface ArtifactRendererProps {
   code: string
 }
 
 export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
+  const [error, setError] = useState<string | null>(null)
+
   const iframeContent = useMemo(() => {
     try {
       const trimmedCode = code.trim()
@@ -152,7 +154,7 @@ function cleanReactCode(code: string): CleanedCode {
   if (/\b(motion\.|AnimatePresence|useAnimation|useSpring)\b/.test(code)) {
     usedLibraries.add('framer-motion')
   }
-  if (/\b(ChevronRight|ChevronLeft|ChevronDown|ChevronUp|Menu|X|Search|User|Settings|Home|Star|Heart|Check|Plus|Minus|Edit|Trash|Download|Upload|Mail|Phone|Calendar|Clock|MapPin|Globe|Lock|Unlock|Eye|EyeOff|Bell|AlertCircle|Info|HelpCircle|ArrowRight|ArrowLeft|ArrowUp|ArrowDown|ExternalLink|Copy|Share|Filter|Grid|List|MoreHorizontal|MoreVertical|Loader|RefreshCw|Save|Send|Image|File|Folder|Video|Music|Camera|Mic|Volume|Play|Pause|SkipForward|SkipBack|Maximize|Minimize|Sun|Moon|Cloud|Zap|Award|Gift|ShoppingCart|ShoppingBag|CreditCard|DollarSign|TrendingUp|TrendingDown|Activity|PieChart|BarChart2|LineChart)\b/.test(code)) {
+  if (/\b(ChevronRight|ChevronLeft|ChevronDown|ChevronUp|Menu|X|Search|User|Settings|Home|Star|Heart|Check|Plus|Minus|Edit|Trash|Download|Upload|Mail|Phone|Calendar|Clock|MapPin|Globe|Lock|Unlock|Eye|EyeOff|Bell|AlertCircle|Info|HelpCircle|ArrowRight|ArrowLeft|ArrowUp|ArrowDown|ExternalLink|Copy|Share|Filter|Grid|List|MoreHorizontal|MoreVertical|Loader|RefreshCw|Save|Send|Image|File|Folder|Video|Music|Camera|Mic|Volume|Play|Pause|SkipForward|SkipBack|Maximize|Minimize|Sun|Moon|Cloud|Zap|Award|Gift|ShoppingCart|ShoppingBag|CreditCard|DollarSign|TrendingUp|TrendingDown|Activity|PieChart|BarChart2|LineChart|Brain|Network|MessageSquare|Shield|Sparkles)\b/.test(code)) {
     usedLibraries.add('lucide-react')
   }
   if (/\b_\.(\w+)\(/.test(code) || /\blodash\b/.test(code)) {
@@ -247,7 +249,7 @@ function generateReactHTML(code: string): string {
   
   // Generar scripts de librerías necesarias
   const libraryScripts = generateLibraryScripts(usedLibraries)
-  const librarySetup = generateLibrarySetup()
+  const librarySetup = generateLibrarySetup(usedLibraries)
 
   return `<!DOCTYPE html>
 <html>
@@ -434,17 +436,65 @@ function generateLibraryScripts(libraries: Set<string>): string {
   // Chart.js
   scripts.push('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2"></script>')
   
+  // Lucide React - CORREGIDO: Ahora sí carga desde CDN
+  if (libraries.has('lucide-react')) {
+    scripts.push('<script src="https://unpkg.com/lucide@0.263.1/dist/umd/lucide.js"></script>')
+  }
+  
   return scripts.join('\n  ')
 }
 
-function generateLibrarySetup(): string {
+function generateLibrarySetup(libraries: Set<string>): string {
   const setup: string[] = []
   
-  // Lucide icons - crear objeto con todos los iconos comunes
-  setup.push(`
-    // Lucide React icons setup
-    const LucideIcons = window.lucideReact || {};
+  // Lucide icons - CORREGIDO: Crear wrappers de React para los iconos de Lucide
+  if (libraries.has('lucide-react')) {
+    setup.push(`
+    // Lucide React icons setup - FIXED VERSION
+    const createLucideIcon = (iconName) => {
+      return (props = {}) => {
+        const { size = 24, color, strokeWidth = 2, className, ...rest } = props;
+        
+        // Crear elemento SVG usando lucide.createElement
+        if (window.lucide && window.lucide.createElement) {
+          const svgElement = window.lucide.createElement(iconName);
+          if (svgElement) {
+            // Clonar y aplicar props
+            const clonedSvg = svgElement.cloneNode(true);
+            clonedSvg.setAttribute('width', size);
+            clonedSvg.setAttribute('height', size);
+            if (color) clonedSvg.setAttribute('stroke', color);
+            if (strokeWidth) clonedSvg.setAttribute('stroke-width', strokeWidth);
+            if (className) clonedSvg.setAttribute('class', className);
+            
+            // Convertir a React element
+            return React.createElement('span', {
+              dangerouslySetInnerHTML: { __html: clonedSvg.outerHTML },
+              style: { display: 'inline-flex', ...rest.style }
+            });
+          }
+        }
+        
+        // Fallback: cuadrado simple
+        return React.createElement('span', {
+          style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: size,
+            height: size,
+            fontSize: '10px',
+            color: color || '#888',
+            ...rest.style
+          },
+          className
+        }, '□');
+      };
+    };
+    
+    // Lista de iconos usados comúnmente
     const iconNames = [
+      'Brain', 'Zap', 'Network', 'MessageSquare', 'TrendingUp', 'Shield', 'Sparkles',
       'ChevronRight', 'ChevronLeft', 'ChevronDown', 'ChevronUp',
       'Menu', 'X', 'Search', 'User', 'Settings', 'Home',
       'Star', 'Heart', 'Check', 'Plus', 'Minus', 'Edit', 'Trash',
@@ -456,44 +506,22 @@ function generateLibrarySetup(): string {
       'MoreHorizontal', 'MoreVertical', 'Loader', 'RefreshCw',
       'Save', 'Send', 'Image', 'File', 'Folder', 'Video', 'Music',
       'Camera', 'Mic', 'Volume', 'Play', 'Pause', 'SkipForward', 'SkipBack',
-      'Maximize', 'Minimize', 'Sun', 'Moon', 'Cloud', 'Zap',
+      'Maximize', 'Minimize', 'Sun', 'Moon', 'Cloud',
       'Award', 'Gift', 'ShoppingCart', 'ShoppingBag', 'CreditCard', 'DollarSign',
-      'TrendingUp', 'TrendingDown', 'Activity', 'PieChart', 'BarChart2', 'LineChart',
+      'Activity', 'PieChart', 'BarChart2', 'LineChart',
       'Circle', 'Square', 'Triangle', 'Hexagon', 'Bookmark', 'Flag',
-      'MessageCircle', 'MessageSquare', 'ThumbsUp', 'ThumbsDown',
-      'Smile', 'Frown', 'Meh', 'AlertTriangle', 'CheckCircle', 'XCircle',
-      'Inbox', 'Archive', 'Paperclip', 'Link', 'Unlink',
-      'Bold', 'Italic', 'Underline', 'Code', 'Terminal',
-      'Database', 'Server', 'Wifi', 'WifiOff', 'Bluetooth',
-      'Battery', 'BatteryCharging', 'Power', 'Cpu', 'HardDrive',
-      'Monitor', 'Smartphone', 'Tablet', 'Laptop', 'Watch',
-      'Printer', 'Keyboard', 'Mouse', 'Headphones', 'Speaker',
-      'Radio', 'Tv', 'Cast', 'Airplay', 'Rss',
-      'Github', 'Twitter', 'Facebook', 'Instagram', 'Linkedin', 'Youtube'
+      'MessageCircle', 'ThumbsUp', 'ThumbsDown',
+      'Smile', 'Frown', 'Meh', 'AlertTriangle', 'CheckCircle', 'XCircle'
     ];
     
-    // Crear fallback para iconos no encontrados
-    const createFallbackIcon = (name) => (props) => 
-      React.createElement('span', { 
-        ...props, 
-        style: { 
-          display: 'inline-flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          width: props?.size || 24, 
-          height: props?.size || 24,
-          fontSize: '10px',
-          color: '#888',
-          ...props?.style 
-        } 
-      }, '□');
-    
+    // Crear componentes React para cada icono
     iconNames.forEach(name => {
-      if (!window[name]) {
-        window[name] = LucideIcons[name] || createFallbackIcon(name);
-      }
+      // Convertir de PascalCase a kebab-case para lucide
+      const kebabName = name.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+      window[name] = createLucideIcon(kebabName);
     });
   `)
+  }
   
   // Recharts
   setup.push(`
