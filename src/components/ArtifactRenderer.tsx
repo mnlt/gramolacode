@@ -30,7 +30,7 @@ export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
   return (
     <div style={styles.container}>
       <SandpackProvider
-        template="react"
+        template="react-ts"
         files={sandpackConfig.files}
         customSetup={{
           dependencies: sandpackConfig.dependencies,
