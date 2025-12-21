@@ -175,8 +175,7 @@ export default function App() {
   return classes.filter(Boolean).join(' ');
 }
 `
-    if (!/import.*cn.*from/.test(processedCode) && /\bcn\(/.test(processedCode)) {
-      processedCode = `import { cn } from './lib/utils';\n` + processedCode
+if (!/import.*cn.*from/.test(processedCode) && /\bcn\(/.test(processedCode) && !/function\s+cn\s*\(/.test(processedCode)) {      processedCode = `import { cn } from './lib/utils';\n` + processedCode
     }
   }
   
