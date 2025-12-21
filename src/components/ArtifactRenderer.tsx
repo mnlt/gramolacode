@@ -1,11 +1,10 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo } from 'react'
 
 interface ArtifactRendererProps {
   code: string
 }
 
 export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
-  const [error, setError] = useState<string | null>(null)
 
   const iframeContent = useMemo(() => {
     try {
