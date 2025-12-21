@@ -89,7 +89,6 @@ function analyzeCode(code: string): CodeAnalysis {
   let match
   
   while ((match = importRegex.exec(code)) !== null) {
-    const defaultImport = match[1]
     const namedImports = match[2]
     const source = match[3]
     
