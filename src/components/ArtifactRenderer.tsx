@@ -136,9 +136,9 @@ function buildFiles(code: string, analysis: CodeAnalysis): Record<string, string
   if (analysis.isPlainHTML) {
     if (analysis.isFullDocument) {
       files['/public/index.html'] = code
-      files['/App.js'] = `export default function App() { return null; }`
+      files['/App.tsx'] = `export default function App() { return null; }`
     } else {
-      files['/App.js'] = `
+      files['/App.tsx'] = `
 export default function App() {
   return (
     <div dangerouslySetInnerHTML={{ __html: \`${code.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\` }} />
@@ -187,7 +187,7 @@ if (!/import.*cn.*from/.test(processedCode) && /\bcn\(/.test(processedCode) && !
     }
   }
   
-  files['/App.js'] = processedCode
+  files['/App.tsx'] = processedCode
   
   return files
 }
