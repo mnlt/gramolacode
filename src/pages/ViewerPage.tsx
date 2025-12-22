@@ -223,14 +223,18 @@ export default function ViewerPage() {
       <div style={styles.fullscreenContainer}>
         <div
           ref={viewerRef}
-          style={{
-            ...styles.fullscreenViewer,
-            cursor: mode === 'feedback' ? 'none' : 'default',
-          }}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
+          style={styles.fullscreenViewer}
         >
           <ArtifactRenderer code={artifact.code} />
+          
+          {/* Overlay for feedback mode - captures mouse events over iframe */}
+          {mode === 'feedback' && (
+            <div
+              style={styles.feedbackOverlayFullscreen}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={handleMouseLeave}
+            />
+          )}
         </div>
 
         {/* Exit fullscreen button */}
@@ -378,12 +382,18 @@ export default function ViewerPage() {
           style={{
             ...styles.viewer,
             borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20, 18, 15, 0.25)',
-            cursor: mode === 'feedback' ? 'none' : 'default',
           }}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
         >
           <ArtifactRenderer code={artifact.code} />
+          
+          {/* Overlay for feedback mode - captures mouse events over iframe */}
+          {mode === 'feedback' && (
+            <div
+              style={styles.feedbackOverlay}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={handleMouseLeave}
+            />
+          )}
         </section>
       </main>
 
@@ -610,6 +620,7 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 1000,
   },
   fullscreenViewer: {
+    position: 'relative',
     width: '100%',
     height: '100%',
     overflow: 'auto',
@@ -642,5 +653,23 @@ const styles: Record<string, React.CSSProperties> = {
     height: '16px',
     backgroundColor: 'rgba(20, 18, 15, 0.15)',
     margin: '0 10px',
+  },
+  feedbackOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    cursor: 'none',
+    zIndex: 10,
+  },
+  feedbackOverlayFullscreen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    cursor: 'none',
+    zIndex: 10,
   },
 }
