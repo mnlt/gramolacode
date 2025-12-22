@@ -8,5 +8,6 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
 export interface Artifact {
   id: string
   code: string
+  user_id: string | null
   created_at: string
 }
