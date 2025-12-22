@@ -42,7 +42,7 @@ export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
         }}
       >
         <SandpackPreview
-          style={{ height: '100%', border: 'none' }}  // ← Ahora sí puede usar 100%
+          style={{ height: '100%' }}
           showNavigator={false}
           showRefreshButton={false}
           showOpenInCodeSandbox={false}
@@ -797,14 +797,11 @@ export const TableCaption = React.forwardRef(({ className, ...props }, ref) => <
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    width: '100%',
-    height: 'calc(100vh - 120px)',
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  preview: {
-    flex: 1,
-    border: 'none',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   error: {
     padding: '20px',
