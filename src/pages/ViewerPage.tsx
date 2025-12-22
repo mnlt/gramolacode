@@ -670,6 +670,6 @@ const styles: Record<string, React.CSSProperties> = {
     right: 0,
     bottom: 0,
     cursor: 'pointer',
-    zIndex: 99999,
+    zIndex: 10,
   },
 }
