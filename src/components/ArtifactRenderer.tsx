@@ -11,7 +11,7 @@ interface ArtifactRendererProps {
 export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
   const sandpackConfig = useMemo(() => {
     const trimmedCode = code.trim()
-    
+
     if (!trimmedCode) {
       return null
     }
@@ -40,6 +40,7 @@ export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
             'https://cdn.tailwindcss.com',
           ],
         }}
+        style={{ height: '100%' }}  // ← Añadir esto
       >
         <SandpackPreview
           style={{ height: '100%' }}
@@ -74,33 +75,33 @@ function analyzeCode(code: string): CodeAnalysis {
   const imports: ImportInfo[] = []
   const shadcnComponents: string[] = []
   const npmPackages = new Set<string>()
-  
-  const isPlainHTML = /^<!doctype\s+html/i.test(code) || 
-                      (/^<[a-z]/i.test(code) && !/<[A-Z]/.test(code) && !/import\s/.test(code))
-  
+
+  const isPlainHTML = /^<!doctype\s+html/i.test(code) ||
+    (/^<[a-z]/i.test(code) && !/<[A-Z]/.test(code) && !/import\s/.test(code))
+
   const isFullDocument = /^<!doctype\s+html/i.test(code) || /^<html/i.test(code)
-  
+
   if (isPlainHTML) {
     return { imports, shadcnComponents, npmPackages, isPlainHTML, isFullDocument }
   }
-  
+
   // Extraer imports
   const importRegex = /import\s+(?:(\w+)(?:\s*,\s*)?)?(?:\{([^}]+)\})?\s+from\s+['"]([^'"]+)['"]/g
   let match
-  
+
   while ((match = importRegex.exec(code)) !== null) {
     const namedImports = match[2]
     const source = match[3]
-    
+
     const isShadcn = source.startsWith('@/components/ui/')
-    
+
     imports.push({ full: match[0], source, isShadcn })
-    
+
     if (isShadcn) {
       // Extraer nombre del componente del path
       const componentFile = source.replace('@/components/ui/', '')
       shadcnComponents.push(componentFile)
-      
+
       // También extraer los nombres importados
       if (namedImports) {
         namedImports.split(',').forEach(c => {
@@ -111,18 +112,18 @@ function analyzeCode(code: string): CodeAnalysis {
         })
       }
     } else if (!source.startsWith('.') && !source.startsWith('@/')) {
-      const pkgName = source.startsWith('@') 
+      const pkgName = source.startsWith('@')
         ? source.split('/').slice(0, 2).join('/')
         : source.split('/')[0]
       npmPackages.add(pkgName)
     }
   }
-  
+
   // Detectar uso de hooks sin import explícito
   if (/\buseState\b|\buseEffect\b|\buseRef\b|\buseMemo\b/.test(code)) {
     npmPackages.add('react')
   }
-  
+
   return { imports, shadcnComponents, npmPackages, isPlainHTML, isFullDocument }
 }
 
@@ -132,7 +133,7 @@ function analyzeCode(code: string): CodeAnalysis {
 
 function buildFiles(code: string, analysis: CodeAnalysis): Record<string, string> {
   const files: Record<string, string> = {}
-  
+
   if (analysis.isPlainHTML) {
     if (analysis.isFullDocument) {
       files['/public/index.html'] = code
@@ -148,9 +149,9 @@ export default function App() {
     }
     return files
   }
-  
+
   let processedCode = code
-  
+
   // Reemplazar imports de shadcn
   if (analysis.shadcnComponents.length > 0) {
     analysis.imports.forEach(imp => {
@@ -159,7 +160,7 @@ export default function App() {
         processedCode = processedCode.replace(imp.full, imp.full.replace(imp.source, newSource))
       }
     })
-    
+
     // Generar archivos shadcn
     analysis.shadcnComponents.forEach(comp => {
       const content = getShadcnComponent(comp)
@@ -168,17 +169,18 @@ export default function App() {
       }
     })
   }
-  
+
   // Añadir utilidad cn
   if (/\bcn\(/.test(code) || analysis.shadcnComponents.length > 0) {
     files['/lib/utils.js'] = `export function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 `
-if (!/import.*cn.*from/.test(processedCode) && /\bcn\(/.test(processedCode) && !/function\s+cn\s*\(/.test(processedCode)) {      processedCode = `import { cn } from './lib/utils';\n` + processedCode
+    if (!/import.*cn.*from/.test(processedCode) && /\bcn\(/.test(processedCode) && !/function\s+cn\s*\(/.test(processedCode)) {
+      processedCode = `import { cn } from './lib/utils';\n` + processedCode
     }
   }
-  
+
   // Asegurar export default
   if (!/export\s+default/.test(processedCode)) {
     const componentMatch = processedCode.match(/(?:function|const)\s+([A-Z]\w*)\s*(?:=|\()/)
@@ -186,9 +188,9 @@ if (!/import.*cn.*from/.test(processedCode) && /\bcn\(/.test(processedCode) && !
       processedCode += `\nexport default ${componentMatch[1]};`
     }
   }
-  
+
   files['/App.tsx'] = processedCode
-  
+
   return files
 }
 
@@ -201,7 +203,7 @@ function buildDependencies(analysis: CodeAnalysis): Record<string, string> {
     'react': '^18.2.0',
     'react-dom': '^18.2.0',
   }
-  
+
   const versionMap: Record<string, string> = {
     'lucide-react': '^0.263.1',
     'framer-motion': '^11.0.0',
@@ -220,19 +222,19 @@ function buildDependencies(analysis: CodeAnalysis): Record<string, string> {
     'class-variance-authority': '^0.7.0',
     'tailwind-merge': '^2.2.0',
   }
-  
+
   analysis.npmPackages.forEach(pkg => {
     if (pkg !== 'react' && pkg !== 'react-dom') {
       deps[pkg] = versionMap[pkg] || 'latest'
     }
   })
-  
+
   // MUI necesita emotion
   if (analysis.npmPackages.has('@mui/material')) {
     deps['@emotion/react'] = versionMap['@emotion/react']
     deps['@emotion/styled'] = versionMap['@emotion/styled']
   }
-  
+
   return deps
 }
 
@@ -787,7 +789,7 @@ export const TableCell = React.forwardRef(({ className, ...props }, ref) => <td 
 export const TableCaption = React.forwardRef(({ className, ...props }, ref) => <caption ref={ref} className={cn("mt-4 text-sm text-neutral-500", className)} {...props} />);
 `,
   }
-  
+
   return components[name] || null
 }
 
