@@ -42,7 +42,7 @@ a:hover {
   border-color: rgba(20, 18, 15, 0.28) !important;
 }
 
-/* Hover para botón CTA */
-button:hover:not(:disabled) {
-  background-color: rgba(20, 18, 15, 0.98) !important;
+/* Hover para botón CTA principal (solo en HomePage) */
+button[data-cta]:hover:not(:disabled) {
+  background-color: rgba(20, 18, 15, 0.98);
 }

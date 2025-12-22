@@ -117,6 +117,7 @@ export default function HomePage() {
                 onClick={handleSubmit}
                 disabled={loading || authLoading}
                 type="button"
+                data-cta
               >
                 {authLoading ? 'Connecting...' : loading ? 'Generating...' : 'Generate link'}
                 <span style={styles.arrow}>→</span>

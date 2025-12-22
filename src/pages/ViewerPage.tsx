@@ -25,6 +25,51 @@ function getStoredName(): string {
   return name
 }
 
+// Icons
+const CopyIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+)
+
+const CheckIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+)
+
+const EyeIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+)
+
+const MessageIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+)
+
+const ExpandIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 3 21 3 21 9"/>
+    <polyline points="9 21 3 21 3 15"/>
+    <line x1="21" y1="3" x2="14" y2="10"/>
+    <line x1="3" y1="21" x2="10" y2="14"/>
+  </svg>
+)
+
+const ShrinkIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="4 14 10 14 10 20"/>
+    <polyline points="20 10 14 10 14 4"/>
+    <line x1="14" y1="10" x2="21" y2="3"/>
+    <line x1="3" y1="21" x2="10" y2="14"/>
+  </svg>
+)
+
 export default function ViewerPage() {
   const { id } = useParams<{ id: string }>()
   const [artifact, setArtifact] = useState<Artifact | null>(null)
@@ -39,6 +84,12 @@ export default function ViewerPage() {
   const [copied, setCopied] = useState(false)
   const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 })
   const [showCursor, setShowCursor] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // Hover states
+  const [copyHover, setCopyHover] = useState(false)
+  const [fullscreenHover, setFullscreenHover] = useState(false)
+  const [exitHover, setExitHover] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const viewerRef = useRef<HTMLDivElement>(null)
@@ -65,6 +116,17 @@ export default function ViewerPage() {
 
     fetchArtifact()
   }, [id])
+
+  // Handle ESC to exit fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isFullscreen])
 
   const saveName = useCallback((value: string) => {
     const trimmed = value.trim().slice(0, 24)
@@ -115,6 +177,10 @@ export default function ViewerPage() {
     setShowCursor(false)
   }
 
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen)
+  }
+
   if (loading) {
     return (
       <div style={styles.container}>
@@ -151,6 +217,55 @@ export default function ViewerPage() {
     )
   }
 
+  // Fullscreen mode
+  if (isFullscreen) {
+    return (
+      <div style={styles.fullscreenContainer}>
+        <div
+          ref={viewerRef}
+          style={{
+            ...styles.fullscreenViewer,
+            cursor: mode === 'feedback' ? 'none' : 'default',
+          }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        >
+          <ArtifactRenderer code={artifact.code} />
+        </div>
+
+        {/* Exit fullscreen button */}
+        <button
+          onClick={toggleFullscreen}
+          onMouseEnter={() => setExitHover(true)}
+          onMouseLeave={() => setExitHover(false)}
+          style={{
+            ...styles.exitFullscreenBtn,
+            backgroundColor: exitHover ? '#f5f5f5' : '#fff',
+          }}
+          type="button"
+          aria-label="Exit fullscreen"
+        >
+          <span style={styles.exitFullscreenText}>gramola</span>
+          <span style={styles.exitFullscreenDivider} />
+          <ShrinkIcon />
+        </button>
+
+        {/* Cursor label */}
+        {showCursor && mode === 'feedback' && (
+          <div
+            style={{
+              ...styles.cursorLabel,
+              left: cursorPos.x,
+              top: cursorPos.y,
+            }}
+          >
+            {userName}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -158,67 +273,101 @@ export default function ViewerPage() {
           <Link to="/" style={styles.logo}>gramola</Link>
 
           <div style={styles.controls}>
-            {/* You: Name pill */}
-            <div style={styles.youPill}>
-              <span style={styles.youLabel}>You:</span>
-              {isEditingName ? (
-                <input
-                  ref={inputRef}
-                  type="text"
-                  maxLength={24}
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onBlur={() => saveName(editValue)}
-                  onKeyDown={handleKeyDown}
-                  style={styles.nameEdit}
-                  autoFocus
-                />
-              ) : (
+            {/* Left group: Mode toggle + Name */}
+            <div style={styles.controlGroup}>
+              {/* Mode toggle (icon buttons) */}
+              <div style={styles.seg} role="group" aria-label="Mode">
                 <button
-                  onClick={startEditing}
-                  style={styles.nameBadge}
-                  type="button"
-                  aria-label="Your name (click to edit)"
+                  onClick={() => { setMode('browsing'); setShowCursor(false) }}
+                  style={{
+                    ...styles.segIconButton,
+                    ...(mode === 'browsing' ? styles.segButtonBrowsingActive : {}),
+                  }}
+                  aria-pressed={mode === 'browsing'}
+                  title="Browsing mode"
                 >
-                  {userName}
+                  <EyeIcon />
                 </button>
-              )}
+                <button
+                  onClick={() => setMode('feedback')}
+                  style={{
+                    ...styles.segIconButton,
+                    ...(mode === 'feedback' ? styles.segButtonFeedbackActive : {}),
+                  }}
+                  aria-pressed={mode === 'feedback'}
+                  title="Feedback mode"
+                >
+                  <MessageIcon />
+                </button>
+              </div>
+
+              {/* You: Name pill */}
+              <div style={styles.youPill}>
+                <span style={styles.youLabel}>You:</span>
+                {isEditingName ? (
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    maxLength={24}
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={() => saveName(editValue)}
+                    onKeyDown={handleKeyDown}
+                    style={styles.nameEdit}
+                    autoFocus
+                  />
+                ) : (
+                  <button
+                    onClick={startEditing}
+                    style={styles.nameBadge}
+                    type="button"
+                    aria-label="Your name (click to edit)"
+                  >
+                    {userName}
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Segmented control */}
-            <div style={styles.seg} role="group" aria-label="Mode">
+            {/* Separator */}
+            <div style={styles.separator} />
+
+            {/* Right group: Copy + Fullscreen */}
+            <div style={styles.controlGroup}>
+              {/* Copy link button (icon only) */}
               <button
-                onClick={() => { setMode('browsing'); setShowCursor(false) }}
+                onClick={copyLink}
+                onMouseEnter={() => setCopyHover(true)}
+                onMouseLeave={() => setCopyHover(false)}
                 style={{
-                  ...styles.segButton,
-                  ...(mode === 'browsing' ? styles.segButtonBrowsingActive : {}),
+                  ...styles.iconButton,
+                  backgroundColor: copied ? '#07c078' : (copyHover ? 'rgba(20, 18, 15, 0.06)' : '#fff'),
+                  color: copied ? '#fff' : 'rgba(20, 18, 15, 0.7)',
+                  borderColor: copied ? '#07c078' : 'rgba(20, 18, 15, 0.16)',
                 }}
-                aria-pressed={mode === 'browsing'}
+                type="button"
+                aria-label="Copy link"
+                title={copied ? 'Copied!' : 'Copy link'}
               >
-                Browsing
+                {copied ? <CheckIcon /> : <CopyIcon />}
               </button>
+
+              {/* Fullscreen button */}
               <button
-                onClick={() => setMode('feedback')}
+                onClick={toggleFullscreen}
+                onMouseEnter={() => setFullscreenHover(true)}
+                onMouseLeave={() => setFullscreenHover(false)}
                 style={{
-                  ...styles.segButton,
-                  ...(mode === 'feedback' ? styles.segButtonFeedbackActive : {}),
+                  ...styles.iconButton,
+                  backgroundColor: fullscreenHover ? 'rgba(20, 18, 15, 0.06)' : '#fff',
                 }}
-                aria-pressed={mode === 'feedback'}
+                type="button"
+                aria-label="Enter fullscreen"
+                title="Fullscreen"
               >
-                Feedback
+                <ExpandIcon />
               </button>
             </div>
-
-            {/* Copy link button */}
-            <button
-              onClick={copyLink}
-              style={styles.copyButton}
-              type="button"
-              aria-label="Copy link"
-            >
-              Copy link
-              {copied && <span style={styles.copyStatus}>· Copied</span>}
-            </button>
           </div>
         </div>
       </header>
@@ -283,9 +432,32 @@ const styles: Record<string, React.CSSProperties> = {
   controls: {
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
+    gap: '12px',
     flex: '0 0 auto',
     flexWrap: 'wrap',
+  },
+  controlGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  separator: {
+    width: '1px',
+    height: '20px',
+    backgroundColor: 'rgba(20, 18, 15, 0.15)',
+  },
+  iconButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '34px',
+    height: '34px',
+    borderRadius: '10px',
+    border: '1px solid rgba(20, 18, 15, 0.16)',
+    backgroundColor: '#fff',
+    color: 'rgba(20, 18, 15, 0.7)',
+    cursor: 'pointer',
+    transition: 'background-color 0.15s ease',
   },
   youPill: {
     height: '34px',
@@ -335,16 +507,18 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '2px',
     height: '34px',
   },
-  segButton: {
+  segIconButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '28px',
+    height: '28px',
     border: 0,
     background: 'transparent',
-    fontSize: '13px',
-    padding: '8px 10px',
     borderRadius: '8px',
     cursor: 'pointer',
-    color: 'rgba(20, 18, 15, 0.7)',
-    lineHeight: 1,
-    whiteSpace: 'nowrap',
+    color: 'rgba(20, 18, 15, 0.5)',
+    transition: 'all 0.15s ease',
   },
   segButtonBrowsingActive: {
     backgroundColor: 'rgba(20, 18, 15, 0.9)',
@@ -353,26 +527,6 @@ const styles: Record<string, React.CSSProperties> = {
   segButtonFeedbackActive: {
     backgroundColor: '#6b7cff',
     color: '#fff',
-  },
-  copyButton: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '8px',
-    height: '34px',
-    padding: '0 12px',
-    borderRadius: '10px',
-    border: '1px solid rgba(0, 0, 0, 0.08)',
-    backgroundColor: '#07c078',
-    color: '#fff',
-    fontSize: '13px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  copyStatus: {
-    fontSize: '12px',
-    opacity: 0.9,
-    fontWeight: 600,
   },
   main: {
     maxWidth: '1100px',
@@ -444,5 +598,49 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: 'none',
     transform: 'translate(12px, 12px)',
     zIndex: 999,
+  },
+  // Fullscreen styles
+  fullscreenContainer: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    zIndex: 1000,
+  },
+  fullscreenViewer: {
+    width: '100%',
+    height: '100%',
+    overflow: 'auto',
+  },
+  exitFullscreenBtn: {
+    position: 'fixed',
+    top: '16px',
+    right: '16px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0',
+    height: '34px',
+    padding: '0 10px 0 12px',
+    borderRadius: '10px',
+    border: '1px solid rgba(20, 18, 15, 0.16)',
+    backgroundColor: '#fff',
+    color: 'rgba(20, 18, 15, 0.8)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+    zIndex: 1001,
+    transition: 'background-color 0.15s ease',
+  },
+  exitFullscreenText: {
+    letterSpacing: '-0.01em',
+  },
+  exitFullscreenDivider: {
+    width: '1px',
+    height: '16px',
+    backgroundColor: 'rgba(20, 18, 15, 0.15)',
+    margin: '0 10px',
   },
 }
