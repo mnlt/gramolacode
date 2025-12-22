@@ -42,7 +42,7 @@ export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
         }}
       >
         <SandpackPreview
-          style={styles.preview}
+          style={{ height: 'calc(100vh - 120px)', border: 'none' }}
           showNavigator={false}
           showRefreshButton={false}
           showOpenInCodeSandbox={false}
