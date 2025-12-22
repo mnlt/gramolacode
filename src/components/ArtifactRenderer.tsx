@@ -61,6 +61,7 @@ interface CodeAnalysis {
   imports: ImportInfo[]
   shadcnComponents: string[]
   npmPackages: Set<string>
+  isMarkdown: boolean
   isPlainHTML: boolean
   isFullDocument: boolean
 }
@@ -76,13 +77,24 @@ function analyzeCode(code: string): CodeAnalysis {
   const shadcnComponents: string[] = []
   const npmPackages = new Set<string>()
 
-  const isPlainHTML = /^<!doctype\s+html/i.test(code) ||
+  const firstLine = code.split('\n')[0]
+  const isMarkdown = /^#{1,6}\s/.test(code) ||
+                     /^\s*[-*+]\s[^\s]/.test(code) ||
+                     /^\s*\d+\.\s/.test(code) ||
+                     /^```/m.test(code) ||
+                     /\[.+\]\(.+\)/.test(code) ||
+                     /^>\s/.test(code) ||
+                     /^---\s*$/.test(firstLine)
+
+  const isPlainHTML = !isMarkdown && (
+    /^<!doctype\s+html/i.test(code) ||
     (/^<[a-z]/i.test(code) && !/<[A-Z]/.test(code) && !/import\s/.test(code))
+  )
 
   const isFullDocument = /^<!doctype\s+html/i.test(code) || /^<html/i.test(code)
 
-  if (isPlainHTML) {
-    return { imports, shadcnComponents, npmPackages, isPlainHTML, isFullDocument }
+  if (isMarkdown || isPlainHTML) {
+    return { imports, shadcnComponents, npmPackages, isMarkdown, isPlainHTML, isFullDocument }
   }
 
   // Extraer imports
@@ -124,7 +136,7 @@ function analyzeCode(code: string): CodeAnalysis {
     npmPackages.add('react')
   }
 
-  return { imports, shadcnComponents, npmPackages, isPlainHTML, isFullDocument }
+  return { imports, shadcnComponents, npmPackages, isMarkdown: false, isPlainHTML, isFullDocument }
 }
 
 // ============================================================================
@@ -134,10 +146,38 @@ function analyzeCode(code: string): CodeAnalysis {
 function buildFiles(code: string, analysis: CodeAnalysis): Record<string, string> {
   const files: Record<string, string> = {}
 
+  if (analysis.isMarkdown) {
+    files['/App.tsx'] = `
+import { marked } from 'marked';
+
+const markdown = ${JSON.stringify(code)};
+
+export default function App() {
+  const html = marked.parse(markdown);
+  
+  return (
+    <article 
+      className="prose prose-neutral max-w-none p-8"
+      dangerouslySetInnerHTML={{ __html: html }} 
+    />
+  );
+}
+`
+    return files
+  }
+
   if (analysis.isPlainHTML) {
     if (analysis.isFullDocument) {
-      files['/public/index.html'] = code
-      files['/App.tsx'] = `export default function App() { return null; }`
+      files['/App.tsx'] = `
+export default function App() {
+  return (
+    <iframe
+      srcDoc={\`${code.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`}
+      style={{ width: '100%', height: '100vh', border: 'none' }}
+    />
+  );
+}
+`
     } else {
       files['/App.tsx'] = `
 export default function App() {
@@ -202,6 +242,10 @@ function buildDependencies(analysis: CodeAnalysis): Record<string, string> {
   const deps: Record<string, string> = {
     'react': '^18.2.0',
     'react-dom': '^18.2.0',
+  }
+
+  if (analysis.isMarkdown) {
+    deps['marked'] = '^12.0.0'
   }
 
   const versionMap: Record<string, string> = {
