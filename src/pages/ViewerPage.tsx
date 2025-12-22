@@ -112,6 +112,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '12px',
     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
     overflow: 'hidden',
+    minHeight: 'calc(100vh - 100px)',
   },
   loading: {
     fontSize: '18px',
