@@ -19,18 +19,18 @@ interface ArtifactRendererProps {
  */
 function fixBrokenTemplateLiterals(code: string): string {
   let fixed = code
+  const BACKTICK = '`'
+  const DOLLAR_BRACE = '${'
 
   // Fix 1: return ${...}; sin backticks
-  // Este patrón SIEMPRE es un error porque return seguido de ${ es sintaxis inválida
   const lines = fixed.split('\n')
   const fixedLines = lines.map(line => {
-    // Si la línea tiene "return " seguido de ${} y no tiene backticks
-    if (/\breturn\s+\$\{/.test(line) && !line.includes('`')) {
+    if (/\breturn\s+\$\{/.test(line) && line.indexOf(BACKTICK) === -1) {
       return line.replace(
         /(\breturn\s+)([^;]+)(;)/g,
         (match, ret, content, semi) => {
-          if (content.includes('${')) {
-            return `${ret}\`${content}\`${semi}`
+          if (content.indexOf(DOLLAR_BRACE) !== -1) {
+            return ret + BACKTICK + content + BACKTICK + semi
           }
           return match
         }
@@ -40,15 +40,13 @@ function fixBrokenTemplateLiterals(code: string): string {
   })
   fixed = fixedLines.join('\n')
 
-  // Fix 2: Atributos JSX con ${} sin backticks  
-  // Ejemplo: className={${cls} ${a.bg}} → className={`${cls} ${a.bg}`}
+  // Fix 2: Atributos JSX con ${} sin backticks
   fixed = fixed.replace(
     /(\w+)=\{([^}`]+\$\{[^}]+\}[^}`]*)\}/g,
     (match, attr, content) => {
       const trimmed = content.trim()
-      // Solo si no empieza con backtick, llaves u otros delimitadores válidos
-      if (!trimmed.startsWith('`') && !trimmed.startsWith('{') && !trimmed.startsWith('(') && !trimmed.startsWith('[')) {
-        return `${attr}={\`${content}\`}`
+      if (!trimmed.startsWith(BACKTICK) && !trimmed.startsWith('{') && !trimmed.startsWith('(') && !trimmed.startsWith('[')) {
+        return attr + '={' + BACKTICK + content + BACKTICK + '}'
       }
       return match
     }
@@ -58,23 +56,23 @@ function fixBrokenTemplateLiterals(code: string): string {
   fixed = fixed.replace(
     /\b(const|let|var)\s+(\w+)\s*=\s*\$\{/g,
     (match, keyword, varName) => {
-      return `${keyword} ${varName} = \`\${`
+      return keyword + ' ' + varName + ' = ' + BACKTICK + DOLLAR_BRACE
     }
   )
 
-  // Fix 4: Cerrar template literals que quedaron abiertos en declaraciones
-  // Buscar líneas que tienen ` pero no están cerradas correctamente
+  // Fix 4: Cerrar template literals que quedaron abiertos
   const linesPass2 = fixed.split('\n')
   const fixedLines2 = linesPass2.map(line => {
-    // Si tiene = `${ pero no termina con ` antes del ; o fin de línea
-    if (/=\s*`\$\{/.test(line) && !line.match(/`\s*[;,})\]]/)) {
-      // Agregar backtick de cierre antes del ; o al final
-      if (line.includes(';')) {
-        return line.replace(/([^`])\s*;/, '$1`;')
-      } else if (line.includes(',')) {
-        return line.replace(/([^`])\s*,/, '$1`,')
+    const hasOpenTemplate = /=\s*`\$\{/.test(line)
+    const hasCloseTemplate = /`\s*[;,})\]]/.test(line)
+    
+    if (hasOpenTemplate && !hasCloseTemplate) {
+      if (line.indexOf(';') !== -1) {
+        return line.replace(/([^`])\s*;/, '$1' + BACKTICK + ';')
+      } else if (line.indexOf(',') !== -1) {
+        return line.replace(/([^`])\s*,/, '$1' + BACKTICK + ',')
       } else {
-        return line + '`'
+        return line + BACKTICK
       }
     }
     return line
@@ -177,8 +175,8 @@ function analyzeCode(code: string): CodeAnalysis {
   }
 
   // Extraer imports
-  // Extraer imports
   const importRegex = /import\s+(?:(\w+)(?:\s*,\s*)?)?(?:\{([^}]+)\})?\s+from\s+['"]([^'"]+)['"]/g
+  let importMatch
 
   while ((importMatch = importRegex.exec(code)) !== null) {
     const namedImports = importMatch[2]
