@@ -179,7 +179,6 @@ function analyzeCode(code: string): CodeAnalysis {
   // Extraer imports
   // Extraer imports
   const importRegex = /import\s+(?:(\w+)(?:\s*,\s*)?)?(?:\{([^}]+)\})?\s+from\s+['"]([^'"]+)['"]/g
-  let importMatch
 
   while ((importMatch = importRegex.exec(code)) !== null) {
     const namedImports = importMatch[2]
