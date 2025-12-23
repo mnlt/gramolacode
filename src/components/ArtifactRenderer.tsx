@@ -20,70 +20,55 @@ interface ArtifactRendererProps {
 function fixBrokenTemplateLiterals(code: string): string {
   let fixed = code
   const BACKTICK = '`'
+  const DOLLAR_BRACE = '${'
 
   // Fix 1: return ${...}; sin backticks
-  // Patrón: return ${...}; donde no hay backticks en toda la línea
-  const lines = fixed.split('\n')
-  const fixedLines = lines.map(line => {
-    // Si tiene "return ${"" y NO tiene ningún backtick en la línea
-    if (/\breturn\s+\$\{/.test(line) && line.indexOf(BACKTICK) === -1) {
-      // Encontrar el return y envolver todo hasta el ;
+  // SOLO envolver el statement específico que contiene ${
+  fixed = fixed.replace(
+    /\breturn\s+(\$\{[^;]+)(;)/g,
+    (_match, content, semi) => {
+      // Solo envolver si NO hay backtick ya
+      if (content.indexOf(BACKTICK) === -1) {
+        return 'return ' + BACKTICK + content + BACKTICK + semi
+      }
+      return 'return ' + content + semi
+    }
+  )
+
+  // Fix 2: Atributos JSX con ${} sin backticks
+  // Patrón específico: className={${...} ${...}}
+  const lines2 = fixed.split('\n')
+  const fixedLines2 = lines2.map(line => {
+    // Solo si tiene un atributo que empieza con ${ y no tiene backticks
+    if (/\w+=\{\$\{/.test(line) && line.indexOf(BACKTICK) === -1) {
+      // Envolver solo el contenido entre el primer ${ y el último }
       return line.replace(
-        /(\breturn\s+)(.+?)(;)/,
-        (_match, ret, content) => {
-          return ret + BACKTICK + content + BACKTICK + ';'
+        /(\w+)=\{(\$\{.+?\}(?:\s+\$\{.+?\})*(?:\s+[\w-]+)*)\}/g,
+        (_match, attr, content) => {
+          return attr + '={' + BACKTICK + content + BACKTICK + '}'
         }
       )
     }
     return line
   })
-  fixed = fixedLines.join('\n')
+  fixed = fixedLines2.join('\n')
 
-  // Fix 2: Atributos JSX problemáticos - enfoque línea por línea
-  // Buscar: atributo={${...} ${...} texto}
-  const lines2 = fixed.split('\n')
-  const fixedLines2 = lines2.map(line => {
-    // Patron: algo={${...} y no tiene backtick de apertura
-    // y termina con } (cierre de atributo JSX)
-    const match = line.match(/(\w+)=\{(\$\{.+?\})\s/)
-    if (match && line.indexOf(BACKTICK) === -1 && /\}\s*(?:\/?>|aria-|className)/.test(line)) {
-      // Encontrar inicio y fin del contenido del atributo
-      const attrName = match[1]
-      const startIdx = line.indexOf(attrName + '={') + attrName.length + 2
-      
-      // Buscar el cierre del atributo (el } que cierra el {)
-      let braceCount = 1
-      let endIdx = startIdx
-      for (let i = startIdx; i < line.length; i++) {
-        if (line[i] === '{') braceCount++
-        if (line[i] === '}') braceCount--
-        if (braceCount === 0) {
-          endIdx = i
-          break
+  // Fix 3: Declaraciones const/let/var con ${} sin backticks
+  // Patrón: const label = "now"; if (...) label = ${mins}m;
+  const lines3 = fixed.split('\n')
+  const fixedLines3 = lines3.map(line => {
+    // Buscar asignaciones con ${ que no tienen backticks
+    if (/=\s*\$\{/.test(line) && line.indexOf(BACKTICK) === -1 && /;\s*$/.test(line.trim())) {
+      return line.replace(
+        /(\w+\s*=\s*)(\$\{.+?)(\s*;)/g,
+        (_match, assign, content, semi) => {
+          return assign + BACKTICK + content + BACKTICK + semi
         }
-      }
-      
-      if (endIdx > startIdx) {
-        const content = line.substring(startIdx, endIdx)
-        const before = line.substring(0, startIdx)
-        const after = line.substring(endIdx)
-        return before + BACKTICK + content + BACKTICK + after
-      }
+      )
     }
     return line
   })
-  fixed = fixedLines2.join('\n')
-
-  // Fix 3: const/let/var variable = ${...} sin backticks
-  fixed = fixed.replace(
-    /\b(const|let|var)\s+(\w+)\s*=\s*(\$\{[^;]+);/g,
-    (_match, keyword, varName, content) => {
-      if (content.indexOf(BACKTICK) === -1) {
-        return keyword + ' ' + varName + ' = ' + BACKTICK + content + BACKTICK + ';'
-      }
-      return keyword + ' ' + varName + ' = ' + content + ';'
-    }
-  )
+  fixed = fixedLines3.join('\n')
 
   return fixed
 }
