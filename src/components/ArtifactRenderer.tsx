@@ -14,61 +14,339 @@ interface ArtifactRendererProps {
 
 /**
  * Corrige código donde los template literals perdieron sus backticks.
- * Común cuando se copia código desde ciertas fuentes.
- * Usa approach conservador con regex específicos.
+ * Maneja múltiples casos:
+ * - return ${...}...;
+ * - variable = ${...}...;
+ * - className={texto ${...}}
+ * - className={${...} texto}
  */
 function fixBrokenTemplateLiterals(code: string): string {
-  const BACKTICK = '`'
   let fixed = code
 
-  // Solo procesar si NO hay backticks en el código
-  // (si ya hay backticks, probablemente ya está correcto)
-  if (fixed.indexOf(BACKTICK) !== -1) {
+  // Verificar si hay interpolaciones sin backticks
+  const hasInterpolation = /\$\{/.test(code)
+  if (!hasInterpolation) {
     return fixed
   }
 
-  // ============================================================================
-  // Fix 1: return ${...}texto; en una sola línea
-  // ============================================================================
-  fixed = fixed.replace(
-    /\breturn\s+(\$\{[^;\n]+);/g,
-    'return `$1`;'
-  )
+  // Contar interpolaciones totales vs las que están dentro de backticks válidos
+  const allInterpolations = (code.match(/\$\{/g) || []).length
+  const validMatches = code.match(/`[^`]*\$\{[^`]*`/g) || []
+  let validInterpolations = 0
+  validMatches.forEach(m => {
+    validInterpolations += (m.match(/\$\{/g) || []).length
+  })
+  
+  // Si todos están bien, retornar sin cambios
+  if (allInterpolations === validInterpolations) {
+    return fixed
+  }
 
-  // ============================================================================
-  // Fix 2: variable = ${...}texto; en una sola línea
-  // ============================================================================
-  fixed = fixed.replace(
-    /(\w+)\s*=\s*(\$\{[^;\n]+);/g,
-    '$1 = `$2`;'
-  )
-
-  // ============================================================================
-  // Fix 3: className={${variable} texto} - interpolación al inicio
-  // ============================================================================
-  fixed = fixed.replace(
-    /className=\{(\$\{[^}]+\}\s+[^}]+)\}/g,
-    'className={`$1`}'
-  )
-
-  // ============================================================================
-  // Fix 4: className={texto ${variable}} - interpolación en medio/final
-  // ============================================================================
-  fixed = fixed.replace(
-    /className=\{([^}]*\$\{[^}]+)\}/g,
-    'className={`$1`}'
-  )
-
-  // ============================================================================
-  // Fix 5: className={texto sin quotes ni interpolación}
-  // Solo si empieza con letra minúscula (clase de tailwind)
-  // ============================================================================
-  fixed = fixed.replace(
-    /className=\{([a-z][a-z0-9\-\s]+)\}/g,
-    'className={`$1`}'
-  )
+  // Fix 1: return statements con interpolaciones
+  fixed = fixReturnStatements(fixed)
+  
+  // Fix 2: asignaciones con interpolaciones
+  fixed = fixAssignments(fixed)
+  
+  // Fix 3: className con interpolaciones
+  fixed = fixClassNameAttributes(fixed)
 
   return fixed
+}
+
+/**
+ * Encuentra el final de un statement (el ; correcto, respetando anidamiento)
+ */
+function findStatementEnd(code: string, startIdx: number): number {
+  let depth = 0
+  let inString = false
+  let stringChar = ''
+  
+  for (let i = startIdx; i < code.length; i++) {
+    const ch = code[i]
+    const prev = i > 0 ? code[i - 1] : ''
+    
+    if ((ch === '"' || ch === "'" || ch === '`') && prev !== '\\') {
+      if (!inString) {
+        inString = true
+        stringChar = ch
+      } else if (ch === stringChar) {
+        inString = false
+        stringChar = ''
+      }
+      continue
+    }
+    
+    if (inString) continue
+    
+    if (ch === '(' || ch === '{' || ch === '[') {
+      depth++
+    } else if (ch === ')' || ch === '}' || ch === ']') {
+      depth--
+    } else if (ch === ';' && depth === 0) {
+      return i
+    }
+  }
+  
+  return -1
+}
+
+/**
+ * Encuentra la llave de cierre correspondiente
+ */
+function findMatchingBrace(code: string, startIdx: number): number {
+  let depth = 0
+  let inString = false
+  let stringChar = ''
+  
+  for (let i = startIdx; i < code.length; i++) {
+    const ch = code[i]
+    const prev = i > 0 ? code[i - 1] : ''
+    
+    if ((ch === '"' || ch === "'" || ch === '`') && prev !== '\\') {
+      if (!inString) {
+        inString = true
+        stringChar = ch
+      } else if (ch === stringChar) {
+        inString = false
+        stringChar = ''
+      }
+      continue
+    }
+    
+    if (inString) continue
+    
+    if (ch === '{') {
+      depth++
+    } else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        return i
+      }
+    }
+  }
+  
+  return -1
+}
+
+/**
+ * Arregla return statements con interpolaciones
+ */
+function fixReturnStatements(code: string): string {
+  const lines = code.split('\n')
+  const fixedLines = lines.map(line => {
+    let fixedLine = line
+    
+    let searchStart = 0
+    while (true) {
+      const returnMatch = fixedLine.slice(searchStart).match(/\breturn\s+/)
+      if (!returnMatch) break
+      
+      const returnIdx = searchStart + returnMatch.index!
+      const contentStart = returnIdx + returnMatch[0].length
+      
+      const afterReturn = fixedLine.slice(contentStart).trim()
+      
+      // Si empieza con ( o <, es JSX o expresión agrupada, saltar
+      if (afterReturn.startsWith('(') || afterReturn.startsWith('<')) {
+        searchStart = contentStart
+        continue
+      }
+      
+      // Si no contiene ${, saltar
+      if (!afterReturn.includes('${')) {
+        searchStart = contentStart
+        continue
+      }
+      
+      // Encontrar el ; que termina el statement
+      const semicolonIdx = findStatementEnd(fixedLine, contentStart)
+      if (semicolonIdx === -1) {
+        searchStart = contentStart
+        continue
+      }
+      
+      const content = fixedLine.slice(contentStart, semicolonIdx)
+      
+      // Verificar si es función simple
+      if (/^\s*\w+\s*\([^)]*\)\s*$/.test(content) && !content.includes('${')) {
+        searchStart = semicolonIdx
+        continue
+      }
+      
+      // Verificar si ya tiene backticks
+      const trimmedContent = content.trim()
+      if (trimmedContent.startsWith('`') && trimmedContent.endsWith('`')) {
+        searchStart = semicolonIdx
+        continue
+      }
+      
+      // Verificar si contiene ${ sin backticks cercanos
+      if (content.includes('${') && !content.includes('`')) {
+        const before = fixedLine.slice(0, contentStart)
+        const after = fixedLine.slice(semicolonIdx)
+        fixedLine = before + '`' + content + '`' + after
+        searchStart = contentStart + content.length + 2
+      } else {
+        searchStart = semicolonIdx
+      }
+    }
+    
+    return fixedLine
+  })
+  
+  return fixedLines.join('\n')
+}
+
+/**
+ * Arregla asignaciones con interpolaciones
+ */
+function fixAssignments(code: string): string {
+  const lines = code.split('\n')
+  const fixedLines = lines.map(line => {
+    let fixedLine = line
+    
+    const assignPattern = /\b(let|const|var)\s+(\w+)\s*=\s*|\b(\w+)\s*=\s*(?!=|>)/g
+    let match
+    let offset = 0
+    
+    while ((match = assignPattern.exec(line)) !== null) {
+      const fullMatch = match[0]
+      const matchStart = match.index
+      const contentStart = matchStart + fullMatch.length
+      
+      // Si estamos dentro de paréntesis de función, saltar
+      const beforeMatch = line.slice(0, matchStart)
+      const openParens = (beforeMatch.match(/\(/g) || []).length
+      const closeParens = (beforeMatch.match(/\)/g) || []).length
+      
+      if (openParens > closeParens) {
+        continue
+      }
+      
+      const afterEqual = line.slice(contentStart).trim()
+      if (afterEqual.startsWith('=') || afterEqual.startsWith('>')) {
+        continue
+      }
+      
+      // Buscar el final del statement
+      let endIdx = -1
+      let depth = 0
+      let inString = false
+      let stringChar = ''
+      
+      for (let i = contentStart; i < line.length; i++) {
+        const ch = line[i]
+        const prev = i > 0 ? line[i-1] : ''
+        
+        if ((ch === '"' || ch === "'" || ch === '`') && prev !== '\\') {
+          if (!inString) {
+            inString = true
+            stringChar = ch
+          } else if (ch === stringChar) {
+            inString = false
+          }
+          continue
+        }
+        
+        if (inString) continue
+        
+        if (ch === '(' || ch === '{' || ch === '[') depth++
+        else if (ch === ')' || ch === '}' || ch === ']') depth--
+        else if (ch === ';' && depth === 0) {
+          endIdx = i
+          break
+        }
+      }
+      
+      if (endIdx === -1) continue
+      
+      const content = line.slice(contentStart, endIdx)
+      const trimmed = content.trim()
+      
+      if (/^[\(\{\[\<\"\']/.test(trimmed)) continue
+      if (!content.includes('${')) continue
+      if (trimmed.startsWith('`') && trimmed.endsWith('`')) continue
+      
+      const before = fixedLine.slice(0, contentStart + offset)
+      const after = fixedLine.slice(endIdx + offset)
+      fixedLine = before + '`' + content + '`' + after
+      offset += 2
+    }
+    
+    return fixedLine
+  })
+  
+  return fixedLines.join('\n')
+}
+
+/**
+ * Arregla className con interpolaciones
+ */
+function fixClassNameAttributes(code: string): string {
+  let result = ''
+  let i = 0
+  const pattern = 'className={'
+  
+  while (i < code.length) {
+    const idx = code.indexOf(pattern, i)
+    if (idx === -1) {
+      result += code.slice(i)
+      break
+    }
+    
+    result += code.slice(i, idx + pattern.length)
+    i = idx + pattern.length
+    
+    const closeIdx = findMatchingBrace(code, idx + pattern.length - 1)
+    if (closeIdx === -1) {
+      result += code.slice(i)
+      break
+    }
+    
+    const content = code.slice(i, closeIdx)
+    const trimmed = content.trim()
+    
+    const hasBackticks = trimmed.startsWith('`') && trimmed.endsWith('`')
+    const hasInterpolation = trimmed.includes('${')
+    
+    if (hasBackticks) {
+      result += content
+      i = closeIdx
+      continue
+    }
+    
+    if (/^\s*\w+\s*\(/.test(trimmed) && trimmed.endsWith(')')) {
+      result += content
+      i = closeIdx
+      continue
+    }
+    
+    if (!hasInterpolation && /^[a-zA-Z_]\w*$/.test(trimmed)) {
+      result += content
+      i = closeIdx
+      continue
+    }
+    
+    if (!hasInterpolation && trimmed.includes('?') && trimmed.includes(':')) {
+      result += content
+      i = closeIdx
+      continue
+    }
+    
+    const needsWrap = hasInterpolation || 
+      (/[a-z]/.test(trimmed) && /[\s\-:]/.test(trimmed) && !/^\s*\w+\s*\(/.test(trimmed))
+    
+    if (needsWrap) {
+      result += '`' + content + '`'
+    } else {
+      result += content
+    }
+    
+    i = closeIdx
+  }
+  
+  return result || code
 }
 
 export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
