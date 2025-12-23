@@ -177,16 +177,17 @@ function analyzeCode(code: string): CodeAnalysis {
   }
 
   // Extraer imports
+  // Extraer imports
   const importRegex = /import\s+(?:(\w+)(?:\s*,\s*)?)?(?:\{([^}]+)\})?\s+from\s+['"]([^'"]+)['"]/g
-  let match
+  let importMatch
 
-  while ((match = importRegex.exec(code)) !== null) {
-    const namedImports = match[2]
-    const source = match[3]
+  while ((importMatch = importRegex.exec(code)) !== null) {
+    const namedImports = importMatch[2]
+    const source = importMatch[3]
 
     const isShadcn = source.startsWith('@/components/ui/')
 
-    imports.push({ full: match[0], source, isShadcn })
+    imports.push({ full: importMatch[0], source, isShadcn })
 
     if (isShadcn) {
       // Extraer nombre del componente del path
