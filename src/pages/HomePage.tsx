@@ -90,9 +90,9 @@ export default function HomePage() {
       <main style={styles.main}>
         {/* Hero */}
         <section style={styles.hero}>
-          <h1 style={styles.title}>Generate a feedback link</h1>
+          <h1 style={styles.title}>Paste. Share. Iterate.</h1>
           <p style={styles.subtitle}>
-            For artifacts generated with Claude, GPT or Gemini. Share the link and collect feedback — no signup required.
+          Turn any AI-generated artifact - code, images, markdown, text — into a live link. Anyone can open it and leave feedback instantly. No signup required.
           </p>
         </section>
 
