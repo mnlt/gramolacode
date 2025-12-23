@@ -296,31 +296,161 @@ function fixAssignments(code: string): string {
 /**
  * Función principal que aplica todos los fixes
  */
-function fixBrokenTemplateLiterals(code: string): string {
-  // Si no hay interpolación, no hay nada que arreglar
-  if (!code.includes('${')) {
-    return code
-  }
-  
-  // Contar interpolaciones totales vs válidas (dentro de backticks)
-  const allInterpolations = (code.match(/\$\{/g) || []).length
-  const validMatches = code.match(/`[^`]*\$\{[^`]*`/g) || []
-  let validInterpolations = 0
-  validMatches.forEach(m => {
-    validInterpolations += (m.match(/\$\{/g) || []).length
-  })
-  
-  // Si todas las interpolaciones están en backticks, no hay nada que arreglar
-  if (allInterpolations === validInterpolations) {
-    return code
-  }
-  
-  // Aplicar fixes en orden
+ function fixBrokenTemplateLiterals(code: string): string {
+  const BACKTICK = '`'
   let fixed = code
-  fixed = fixReturnStatements(fixed)
-  fixed = fixAssignments(fixed)
-  fixed = fixClassNameAttributes(fixed)
-  
+
+  // Si ya hay backticks, aun así puede haber rotos,
+  // pero para evitar falsos positivos dejamos el comportamiento original:
+  if (fixed.indexOf(BACKTICK) !== -1) return fixed
+
+  // ------------------------------------------------------------
+  // Helpers
+  // ------------------------------------------------------------
+  const isQuoted = (s: string) => {
+    const t = s.trim()
+    return t.startsWith('"') || t.startsWith("'") || t.startsWith('`')
+  }
+
+  const looksLikeBrokenTemplate = (expr: string) => {
+    const t = expr.trim()
+
+    // Si ya es un literal o algo obviamente JS, no tocar
+    if (isQuoted(t)) return false
+    if (t.startsWith('(') || t.startsWith('{') || t.startsWith('[')) return false
+
+    // Señales claras de “esto pretendía ser string”
+    // - contiene ${ ... }
+    // - o tiene tokens tailwind (guiones / espacios)
+    // - o mezcla texto con underscores/hyphens típico de strings
+    if (t.includes('${')) return true
+    if (/[a-z0-9]-[a-z0-9]/i.test(t)) return true // "bg-zinc-900"
+    if (/\s/.test(t) && /[a-z]/i.test(t)) return true // "px-3 py-2"
+    return false
+  }
+
+  const wrapWithBackticks = (expr: string) => {
+    // Escapar backticks por si acaso (aunque arriba retornamos si había backticks globalmente)
+    const escaped = expr.replace(/`/g, '\\`')
+    return `\`${escaped}\``
+  }
+
+  // ------------------------------------------------------------
+  // 1) Fix return ...;
+  // ------------------------------------------------------------
+  fixed = fixed.replace(
+    /\breturn\s+([^;\n]+);/g,
+    (m, expr) => {
+      if (!looksLikeBrokenTemplate(expr)) return m
+      return `return ${wrapWithBackticks(expr)};`
+    }
+  )
+
+  // ------------------------------------------------------------
+  // 2) Fix asignaciones simples: x = ...;
+  //    (incluye: label = ${mins}m;)
+  // ------------------------------------------------------------
+  fixed = fixed.replace(
+    /(^|[;\n]\s*)([A-Za-z_$][\w$]*)\s*=\s*([^;\n]+);/g,
+    (m, prefix, name, expr) => {
+      if (!looksLikeBrokenTemplate(expr)) return m
+      return `${prefix}${name} = ${wrapWithBackticks(expr)};`
+    }
+  )
+
+  // ------------------------------------------------------------
+  // 3) Fix className={...} usando escaneo con balanceo de llaves
+  //    (esto evita que el regex se rompa con ${...} dentro)
+  // ------------------------------------------------------------
+  const src = fixed
+  let out = ''
+  let i = 0
+
+  while (i < src.length) {
+    const idx = src.indexOf('className={', i)
+    if (idx === -1) {
+      out += src.slice(i)
+      break
+    }
+
+    out += src.slice(i, idx)
+    let j = idx + 'className={'.length
+
+    // buscar el } que cierra este { ... } balanceando llaves
+    let depth = 1
+    let inSingle = false
+    let inDouble = false
+    let inLineComment = false
+    let inBlockComment = false
+
+    while (j < src.length && depth > 0) {
+      const ch = src[j]
+      const next = src[j + 1]
+
+      // comentarios
+      if (!inSingle && !inDouble) {
+        if (!inBlockComment && !inLineComment && ch === '/' && next === '/') {
+          inLineComment = true
+          j += 2
+          continue
+        }
+        if (!inBlockComment && !inLineComment && ch === '/' && next === '*') {
+          inBlockComment = true
+          j += 2
+          continue
+        }
+        if (inLineComment && ch === '\n') {
+          inLineComment = false
+          j++
+          continue
+        }
+        if (inBlockComment && ch === '*' && next === '/') {
+          inBlockComment = false
+          j += 2
+          continue
+        }
+      }
+      if (inLineComment || inBlockComment) {
+        j++
+        continue
+      }
+
+      // strings simples (como tu código no tiene backticks, esto vale)
+      if (!inDouble && ch === "'" && src[j - 1] !== '\\') {
+        inSingle = !inSingle
+        j++
+        continue
+      }
+      if (!inSingle && ch === '"' && src[j - 1] !== '\\') {
+        inDouble = !inDouble
+        j++
+        continue
+      }
+      if (inSingle || inDouble) {
+        j++
+        continue
+      }
+
+      // balanceo llaves
+      if (ch === '{') depth++
+      else if (ch === '}') depth--
+
+      j++
+    }
+
+    // contenido entre llaves (sin la llave final)
+    const expr = src.slice(idx + 'className={'.length, j - 1)
+
+    if (looksLikeBrokenTemplate(expr)) {
+      out += `className={${wrapWithBackticks(expr)}}`
+    } else {
+      out += `className={${expr}}`
+    }
+
+    i = j
+  }
+
+  fixed = out
   return fixed
 }
 
