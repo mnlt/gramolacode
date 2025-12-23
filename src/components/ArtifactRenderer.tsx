@@ -15,121 +15,58 @@ interface ArtifactRendererProps {
 /**
  * Corrige código donde los template literals perdieron sus backticks.
  * Común cuando se copia código desde ciertas fuentes.
- * Maneja casos multilinea y complejos.
+ * Usa approach conservador con regex específicos.
  */
 function fixBrokenTemplateLiterals(code: string): string {
   const BACKTICK = '`'
   let fixed = code
 
-  // ============================================================================
-  // Fix 1: return ${...}; - return statements sin backticks
-  // ============================================================================
-  fixed = fixed.replace(
-    /\breturn\s+(\$\{[^;]+);/g,
-    (_match, content) => {
-      if (content.indexOf(BACKTICK) === -1) {
-        return 'return ' + BACKTICK + content + BACKTICK + ';'
-      }
-      return 'return ' + content + ';'
-    }
-  )
-
-  // ============================================================================
-  // Fix 2: variable = ${...}; - asignaciones sin backticks
-  // ============================================================================
-  fixed = fixed.replace(
-    /(\w+)\s*=\s*(\$\{[^;]+);/g,
-    (_match, varName, content) => {
-      if (content.indexOf(BACKTICK) === -1) {
-        return varName + ' = ' + BACKTICK + content + BACKTICK + ';'
-      }
-      return varName + ' = ' + content + ';'
-    }
-  )
-
-  // ============================================================================
-  // Fix 3: className={...} - el más complejo, requiere parsing manual
-  // ============================================================================
-  let result = ''
-  let i = 0
-  
-  while (i < fixed.length) {
-    const classNameIndex = fixed.indexOf('className={', i)
-    
-    if (classNameIndex === -1) {
-      result += fixed.substring(i)
-      break
-    }
-    
-    result += fixed.substring(i, classNameIndex + 11)
-    
-    const startContent = classNameIndex + 11
-    let braceCount = 1
-    let endContent = startContent
-    let hasBacktick = false
-    let hasInterpolation = false
-    let startsWithQuote = false
-    let inString = false
-    let stringChar = ''
-    
-    const firstNonSpace = fixed.substring(startContent).trimStart()[0]
-    if (firstNonSpace === '"' || firstNonSpace === "'" || firstNonSpace === BACKTICK) {
-      startsWithQuote = true
-    }
-    
-    // Parser más cuidadoso que respeta strings
-    for (let j = startContent; j < fixed.length; j++) {
-      const char = fixed[j]
-      const prev = j > 0 ? fixed[j - 1] : ''
-      
-      // Detectar inicio/fin de string
-      if (!inString && (char === '"' || char === "'" || char === BACKTICK)) {
-        inString = true
-        stringChar = char
-        if (char === BACKTICK) hasBacktick = true
-      } else if (inString && char === stringChar && prev !== '\\') {
-        inString = false
-        stringChar = ''
-      }
-      
-      // Solo contar llaves fuera de strings
-      if (!inString) {
-        if (char === '$' && fixed[j + 1] === '{') {
-          hasInterpolation = true
-        }
-        
-        if (char === '{') {
-          braceCount++
-        } else if (char === '}') {
-          braceCount--
-          if (braceCount === 0) {
-            endContent = j
-            break
-          }
-        }
-      }
-    }
-    
-    const content = fixed.substring(startContent, endContent)
-    
-    // Decidir si necesita fix:
-    // - NO tiene backticks
-    // - NO comienza con quote
-    // - Y (tiene interpolación O parece ser clases de Tailwind)
-    const looksLikeTailwind = /^[a-z0-9\-\s]+/i.test(content.trim())
-    const needsFix = !hasBacktick && !startsWithQuote && (hasInterpolation || looksLikeTailwind)
-    
-    if (needsFix) {
-      result += BACKTICK + content + BACKTICK
-    } else {
-      result += content
-    }
-    
-    result += '}'
-    i = endContent + 1
+  // Solo procesar si NO hay backticks en el código
+  // (si ya hay backticks, probablemente ya está correcto)
+  if (fixed.indexOf(BACKTICK) !== -1) {
+    return fixed
   }
-  
-  fixed = result
+
+  // ============================================================================
+  // Fix 1: return ${...}texto; en una sola línea
+  // ============================================================================
+  fixed = fixed.replace(
+    /\breturn\s+(\$\{[^;\n]+);/g,
+    'return `$1`;'
+  )
+
+  // ============================================================================
+  // Fix 2: variable = ${...}texto; en una sola línea
+  // ============================================================================
+  fixed = fixed.replace(
+    /(\w+)\s*=\s*(\$\{[^;\n]+);/g,
+    '$1 = `$2`;'
+  )
+
+  // ============================================================================
+  // Fix 3: className={${variable} texto} - interpolación al inicio
+  // ============================================================================
+  fixed = fixed.replace(
+    /className=\{(\$\{[^}]+\}\s+[^}]+)\}/g,
+    'className={`$1`}'
+  )
+
+  // ============================================================================
+  // Fix 4: className={texto ${variable}} - interpolación en medio/final
+  // ============================================================================
+  fixed = fixed.replace(
+    /className=\{([^}]*\$\{[^}]+)\}/g,
+    'className={`$1`}'
+  )
+
+  // ============================================================================
+  // Fix 5: className={texto sin quotes ni interpolación}
+  // Solo si empieza con letra minúscula (clase de tailwind)
+  // ============================================================================
+  fixed = fixed.replace(
+    /className=\{([a-z][a-z0-9\-\s]+)\}/g,
+    'className={`$1`}'
+  )
 
   return fixed
 }
