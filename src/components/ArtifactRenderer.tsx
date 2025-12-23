@@ -55,7 +55,7 @@ function fixBrokenTemplateLiterals(code: string): string {
   // Fix 3: const/let/var variable = ${...} sin backticks
   fixed = fixed.replace(
     /\b(const|let|var)\s+(\w+)\s*=\s*\$\{/g,
-    (match, keyword, varName) => {
+    (_match, keyword, varName) => {
       return keyword + ' ' + varName + ' = ' + BACKTICK + DOLLAR_BRACE
     }
   )
