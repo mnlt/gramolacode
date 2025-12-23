@@ -22,11 +22,10 @@ function fixBrokenTemplateLiterals(code: string): string {
   const BACKTICK = '`'
 
   // Fix 1: return ${...}; sin backticks
-  // SOLO envolver el statement específico que contiene ${
+  // Patrón: return ${variable}texto; donde falta backtick
   fixed = fixed.replace(
     /\breturn\s+(\$\{[^;]+)(;)/g,
     (_match, content, semi) => {
-      // Solo envolver si NO hay backtick ya
       if (content.indexOf(BACKTICK) === -1) {
         return 'return ' + BACKTICK + content + BACKTICK + semi
       }
@@ -34,40 +33,48 @@ function fixBrokenTemplateLiterals(code: string): string {
     }
   )
 
-  // Fix 2: Atributos JSX con ${} sin backticks
-  // Patrón específico: className={${...} ${...}}
-  const lines2 = fixed.split('\n')
-  const fixedLines2 = lines2.map(line => {
-    // Solo si tiene un atributo que empieza con ${ y no tiene backticks
-    if (/\w+=\{\$\{/.test(line) && line.indexOf(BACKTICK) === -1) {
-      // Envolver solo el contenido entre el primer ${ y el último }
-      return line.replace(
-        /(\w+)=\{(\$\{.+?\}(?:\s+\$\{.+?\})*(?:\s+[\w-]+)*)\}/g,
-        (_match, attr, content) => {
-          return attr + '={' + BACKTICK + content + BACKTICK + '}'
-        }
-      )
+  // Fix 2: Asignaciones con ${} - variable = ${...}texto;
+  // Patrón: label = ${mins}m; o similar
+  fixed = fixed.replace(
+    /(\w+)\s*=\s*(\$\{[^;]+)(;)/g,
+    (_match, varName, content, semi) => {
+      if (content.indexOf(BACKTICK) === -1) {
+        return varName + ' = ' + BACKTICK + content + BACKTICK + semi
+      }
+      return varName + ' = ' + content + semi
     }
-    return line
-  })
-  fixed = fixedLines2.join('\n')
+  )
 
-  // Fix 3: Declaraciones const/let/var con ${} sin backticks
-  // Patrón: const label = "now"; if (...) label = ${mins}m;
-  const lines3 = fixed.split('\n')
-  const fixedLines3 = lines3.map(line => {
-    // Buscar asignaciones con ${ que no tienen backticks
-    if (/=\s*\$\{/.test(line) && line.indexOf(BACKTICK) === -1 && /;\s*$/.test(line.trim())) {
-      return line.replace(
-        /(\w+\s*=\s*)(\$\{.+?)(\s*;)/g,
-        (_match, assign, content, semi) => {
-          return assign + BACKTICK + content + BACKTICK + semi
-        }
-      )
+  // Fix 3: className={...} sin quotes ni backticks
+  // Detectar className={algo} donde "algo" no empieza con " ' ` { $
+  fixed = fixed.replace(
+    /className=\{([^"'`{$][^}]*)\}/g,
+    (_match, content) => {
+      // Si el contenido no tiene backtick, agregarlo
+      if (content.indexOf(BACKTICK) === -1) {
+        return 'className={' + BACKTICK + content + BACKTICK + '}'
+      }
+      return 'className={' + content + '}'
     }
-    return line
-  })
-  fixed = fixedLines3.join('\n')
+  )
+
+  // Fix 4: className={${...} ...} - con interpolación
+  fixed = fixed.replace(
+    /className=\{(\$\{[^}]+\}[^}]*)\}/g,
+    (_match, content) => {
+      if (content.indexOf(BACKTICK) === -1) {
+        return 'className={' + BACKTICK + content + BACKTICK + '}'
+      }
+      return 'className={' + content + '}'
+    }
+  )
+
+  // Fix 5: className=`...` donde falta la llave de apertura
+  // Patrón: className=`texto ${...} texto`
+  fixed = fixed.replace(
+    /className=`([^`]+)`/g,
+    'className={`$1`}'
+  )
 
   return fixed
 }
