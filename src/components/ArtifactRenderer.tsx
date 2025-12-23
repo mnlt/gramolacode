@@ -8,6 +8,82 @@ interface ArtifactRendererProps {
   code: string
 }
 
+// ============================================================================
+// FIX DE TEMPLATE LITERALS ROTOS
+// ============================================================================
+
+/**
+ * Corrige código donde los template literals perdieron sus backticks.
+ * Común cuando se copia código desde ciertas fuentes.
+ * Solo arregla patrones inequívocamente erróneos.
+ */
+function fixBrokenTemplateLiterals(code: string): string {
+  let fixed = code
+
+  // Fix 1: return ${...}; sin backticks
+  // Este patrón SIEMPRE es un error porque return seguido de ${ es sintaxis inválida
+  const lines = fixed.split('\n')
+  const fixedLines = lines.map(line => {
+    // Si la línea tiene "return " seguido de ${} y no tiene backticks
+    if (/\breturn\s+\$\{/.test(line) && !line.includes('`')) {
+      return line.replace(
+        /(\breturn\s+)([^;]+)(;)/g,
+        (match, ret, content, semi) => {
+          if (content.includes('${')) {
+            return `${ret}\`${content}\`${semi}`
+          }
+          return match
+        }
+      )
+    }
+    return line
+  })
+  fixed = fixedLines.join('\n')
+
+  // Fix 2: Atributos JSX con ${} sin backticks  
+  // Ejemplo: className={${cls} ${a.bg}} → className={`${cls} ${a.bg}`}
+  fixed = fixed.replace(
+    /(\w+)=\{([^}`]+\$\{[^}]+\}[^}`]*)\}/g,
+    (match, attr, content) => {
+      const trimmed = content.trim()
+      // Solo si no empieza con backtick, llaves u otros delimitadores válidos
+      if (!trimmed.startsWith('`') && !trimmed.startsWith('{') && !trimmed.startsWith('(') && !trimmed.startsWith('[')) {
+        return `${attr}={\`${content}\`}`
+      }
+      return match
+    }
+  )
+
+  // Fix 3: const/let/var variable = ${...} sin backticks
+  fixed = fixed.replace(
+    /\b(const|let|var)\s+(\w+)\s*=\s*\$\{/g,
+    (match, keyword, varName) => {
+      return `${keyword} ${varName} = \`\${`
+    }
+  )
+
+  // Fix 4: Cerrar template literals que quedaron abiertos en declaraciones
+  // Buscar líneas que tienen ` pero no están cerradas correctamente
+  const linesPass2 = fixed.split('\n')
+  const fixedLines2 = linesPass2.map(line => {
+    // Si tiene = `${ pero no termina con ` antes del ; o fin de línea
+    if (/=\s*`\$\{/.test(line) && !line.match(/`\s*[;,})\]]/)) {
+      // Agregar backtick de cierre antes del ; o al final
+      if (line.includes(';')) {
+        return line.replace(/([^`])\s*;/, '$1`;')
+      } else if (line.includes(',')) {
+        return line.replace(/([^`])\s*,/, '$1`,')
+      } else {
+        return line + '`'
+      }
+    }
+    return line
+  })
+  fixed = fixedLines2.join('\n')
+
+  return fixed
+}
+
 export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
   const sandpackConfig = useMemo(() => {
     const trimmedCode = code.trim()
@@ -16,8 +92,11 @@ export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
       return null
     }
 
-    const analysis = analyzeCode(trimmedCode)
-    const files = buildFiles(trimmedCode, analysis)
+    // Aplicar fix de template literals rotos ANTES de analizar
+    const fixedCode = fixBrokenTemplateLiterals(trimmedCode)
+
+    const analysis = analyzeCode(fixedCode)
+    const files = buildFiles(fixedCode, analysis)
     const dependencies = buildDependencies(analysis)
 
     return { files, dependencies }
@@ -40,7 +119,7 @@ export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
             'https://cdn.tailwindcss.com',
           ],
         }}
-        style={{ height: '100%' }}  // ← Añadir esto
+        style={{ height: '100%' }}
       >
         <SandpackPreview
           style={{ height: '100%' }}
