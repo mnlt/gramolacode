@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import React, { useMemo } from 'react'
 import {
   SandpackProvider,
   SandpackPreview,
@@ -20,7 +20,6 @@ interface ArtifactRendererProps {
 function fixBrokenTemplateLiterals(code: string): string {
   let fixed = code
   const BACKTICK = '`'
-  const DOLLAR_BRACE = '${'
 
   // Fix 1: return ${...}; sin backticks
   // SOLO envolver el statement específico que contiene ${
