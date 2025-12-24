@@ -398,7 +398,13 @@ export default function ViewerPage() {
               <ArrowLeftIcon />
               <span>Back</span>
             </button>
-            <Link to="/" style={styles.logo}>gramola</Link>
+            <div style={styles.privateBadge}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span>Private view — only you as the link owner can see all feedback</span>
+            </div>
             <div style={{ width: 80 }} />
           </div>
         </header>
@@ -1381,5 +1387,17 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     fontWeight: 500,
     cursor: 'pointer',
+  },
+  privateBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 14px',
+    borderRadius: '10px',
+    backgroundColor: 'rgba(107, 124, 255, 0.08)',
+    border: '1px solid rgba(107, 124, 255, 0.2)',
+    color: 'rgba(20, 18, 15, 0.7)',
+    fontSize: '13px',
+    fontWeight: 500,
   },
 }
