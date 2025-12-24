@@ -90,9 +90,9 @@ export default function HomePage() {
       <main style={styles.main}>
         {/* Hero */}
         <section style={styles.hero}>
-          <h1 style={styles.title}>Paste. Share. Iterate.</h1>
+          <h1 style={styles.title}>Share. Learn. Iterate.</h1>
           <p style={styles.subtitle}>
-          Turn any AI-generated artifact - code, images, markdown, text — into a live link. Anyone can open it and leave feedback instantly. No signup required.
+          Turn any artifact (code, images, text...) into a link. Share it and get feedback from others. No signup required.
           </p>
         </section>
 
