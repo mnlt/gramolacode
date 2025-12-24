@@ -11,3 +11,14 @@ export interface Artifact {
   user_id: string | null
   created_at: string
 }
+
+export interface Comment {
+  id: string
+  artifact_id: string
+  user_id: string | null
+  user_name: string
+  x_percent: number
+  y_percent: number
+  message: string
+  created_at: string
+}
