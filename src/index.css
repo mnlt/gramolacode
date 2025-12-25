@@ -46,3 +46,30 @@ a:hover {
 button[data-cta]:hover:not(:disabled) {
   background-color: rgba(20, 18, 15, 0.98);
 }
+
+/* ============================================
+   SANDPACK: Forzar altura automática
+   ============================================ */
+
+/* Todos los contenedores de Sandpack deben expandirse */
+.sp-wrapper,
+.sp-layout,
+.sp-stack,
+.sp-preview,
+.sp-preview-container,
+.sp-preview-actions,
+[class*="sp-"] {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+/* El iframe de Sandpack debe expandirse al contenido */
+.sp-preview-iframe,
+.sp-preview iframe,
+[class*="sp-"] iframe {
+  height: auto !important;
+  min-height: 400px !important;
+  max-height: none !important;
+}

@@ -24,10 +24,10 @@ export default function ArtifactRenderer({ code, onHeightChange }: ArtifactRende
     return { files, dependencies }
   }, [code])
 
-  const expandAllContainers = useCallback(() => {
+  const measureAndExpand = useCallback(() => {
     if (!containerRef.current) return
     
-    const iframe = containerRef.current.querySelector('iframe')
+    const iframe = containerRef.current.querySelector('iframe') as HTMLIFrameElement
     if (!iframe) return
     
     try {
@@ -43,74 +43,49 @@ export default function ArtifactRenderer({ code, onHeightChange }: ArtifactRende
         400
       )
       
-      // Deshabilitar scroll interno
+      // Deshabilitar scroll interno del iframe
       doc.body.style.overflow = 'hidden'
       doc.documentElement.style.overflow = 'hidden'
       
-      // Expandir el iframe
+      // Aplicar altura al iframe
       iframe.style.height = `${height}px`
       
-      // Expandir TODOS los contenedores padres hasta mi container
-      let parent = iframe.parentElement
-      while (parent && parent !== containerRef.current) {
-        parent.style.height = `${height}px`
-        parent.style.maxHeight = 'none'
-        parent.style.minHeight = `${height}px`
-        parent = parent.parentElement
-      }
-      
-      // Expandir mi container también
-      if (containerRef.current) {
-        containerRef.current.style.height = `${height}px`
-      }
-      
       // Notificar al padre
-      if (onHeightChange && height > 100) {
+      if (onHeightChange) {
         onHeightChange(height)
       }
-      
-      return height
     } catch {
-      const defaultHeight = Math.max(window.innerHeight - 150, 400)
-      if (onHeightChange) onHeightChange(defaultHeight)
-      return defaultHeight
+      // CORS - usar altura por defecto
+      if (onHeightChange) {
+        onHeightChange(600)
+      }
     }
   }, [onHeightChange])
 
   useEffect(() => {
     if (!sandpackConfig) return
     
+    // Intentar medir periódicamente hasta que el contenido esté listo
     let attempts = 0
-    const maxAttempts = 100
-    let intervalId: ReturnType<typeof setInterval>
+    const maxAttempts = 60
     
-    const startTimer = setTimeout(() => {
-      expandAllContainers()
-      intervalId = setInterval(() => {
-        expandAllContainers()
-        attempts++
-        if (attempts >= maxAttempts) clearInterval(intervalId)
-      }, 300)
-    }, 800)
+    const intervalId = setInterval(() => {
+      measureAndExpand()
+      attempts++
+      if (attempts >= maxAttempts) {
+        clearInterval(intervalId)
+      }
+    }, 500)
     
-    return () => {
-      clearTimeout(startTimer)
-      if (intervalId) clearInterval(intervalId)
-    }
-  }, [sandpackConfig, expandAllContainers])
-
-  useEffect(() => {
-    const handleResize = () => setTimeout(expandAllContainers, 100)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [expandAllContainers])
+    return () => clearInterval(intervalId)
+  }, [sandpackConfig, measureAndExpand])
 
   if (!sandpackConfig) {
     return <div style={styles.error}>No code provided</div>
   }
 
   return (
-    <div ref={containerRef} style={styles.container}>
+    <div ref={containerRef}>
       <SandpackProvider
         template="react-ts"
         files={sandpackConfig.files}
@@ -128,10 +103,6 @@ export default function ArtifactRenderer({ code, onHeightChange }: ArtifactRende
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: {
-    width: '100%',
-    minHeight: '400px',
-  },
   error: { 
     padding: '20px', 
     color: '#dc2626', 
