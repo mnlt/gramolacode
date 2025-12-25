@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase, type Artifact, type Comment } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import ArtifactRenderer from '../components/ArtifactRenderer'
+import ArtifactRenderer, { type FeedbackComment, type PendingComment } from '../components/ArtifactRenderer'
 
 type Mode = 'browsing' | 'feedback'
 type View = 'artifact' | 'table'
@@ -102,25 +102,11 @@ const ArrowLeftIcon = () => (
   </svg>
 )
 
-const CloseIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-)
-
 const GoToIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="10" />
     <polyline points="12 8 16 12 12 16" />
     <line x1="8" y1="12" x2="16" y2="12" />
-  </svg>
-)
-
-const SendIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 2L11 13" />
-    <path d="M22 2L15 22L11 13L2 9L22 2Z" />
   </svg>
 )
 
@@ -140,14 +126,11 @@ export default function ViewerPage() {
   const [isEditingName, setIsEditingName] = useState(false)
   const [editValue, setEditValue] = useState('')
   const [copied, setCopied] = useState(false)
-  const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 })
-  const [isOverViewer, setIsOverViewer] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   
   // Feedback state
-  const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null)
+  const [pendingPosition, setPendingPosition] = useState<PendingComment | null>(null)
   const [expandedComment, setExpandedComment] = useState<string | null>(null)
-  const [inputValue, setInputValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   // Hover states
@@ -159,8 +142,6 @@ export default function ViewerPage() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
 
   const inputRef = useRef<HTMLInputElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const viewerRef = useRef<HTMLDivElement>(null)
 
   // Check if current user is the owner of this artifact
   const isOwner = artifact && user && artifact.user_id === user.id
@@ -169,6 +150,17 @@ export default function ViewerPage() {
   const visibleComments = isOwner
     ? comments
     : comments.filter(c => c.user_id === user?.id)
+
+  // Transform comments for ArtifactRenderer
+  const feedbackComments: FeedbackComment[] = visibleComments.map(c => ({
+    id: c.id,
+    user_name: c.user_name,
+    x_percent: c.x_percent,
+    y_percent: c.y_percent,
+    message: c.message,
+    isMine: c.user_id === user?.id,
+    isExpanded: expandedComment === c.id,
+  }))
 
   useEffect(() => {
     async function fetchData() {
@@ -214,7 +206,6 @@ export default function ViewerPage() {
           setExpandedComment(null)
         } else if (pendingPosition) {
           setPendingPosition(null)
-          setInputValue('')
         }
       }
     }
@@ -230,6 +221,53 @@ export default function ViewerPage() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  // Listen for submit events from ArtifactRenderer
+  useEffect(() => {
+    const handleSubmit = async (e: CustomEvent<{ message: string; x: number; y: number }>) => {
+      if (!id || !user || submitting) return
+      
+      const { message, x, y } = e.detail
+      
+      setSubmitting(true)
+      
+      try {
+        const { data, error: insertError } = await supabase
+          .from('comments')
+          .insert({
+            artifact_id: id,
+            user_id: user.id,
+            user_name: userName,
+            x_percent: x,
+            y_percent: y,
+            message: message.trim()
+          })
+          .select()
+          .single()
+
+        if (insertError) throw insertError
+        
+        setComments(prev => [...prev, data])
+        setPendingPosition(null)
+      } catch (err) {
+        console.error('Error submitting comment:', err)
+      } finally {
+        setSubmitting(false)
+      }
+    }
+
+    const handleCloseExpanded = () => {
+      setExpandedComment(null)
+    }
+
+    window.addEventListener('gramola-submit-comment', handleSubmit as EventListener)
+    window.addEventListener('gramola-close-expanded', handleCloseExpanded)
+    
+    return () => {
+      window.removeEventListener('gramola-submit-comment', handleSubmit as EventListener)
+      window.removeEventListener('gramola-close-expanded', handleCloseExpanded)
+    }
+  }, [id, user, userName, submitting])
 
   const saveName = useCallback((value: string) => {
     const trimmed = value.trim().slice(0, 24)
@@ -269,132 +307,30 @@ export default function ViewerPage() {
     setTimeout(() => setCopied(false), 1200)
   }
 
-  const handleViewerClick = (e: React.MouseEvent) => {
-    if (mode !== 'feedback') return
-    
-    // Don't create new comment if clicking on a pin or input card
-    const target = e.target as HTMLElement
-    if (target.closest('[data-pin]') || target.closest('[data-input-card]')) return
-    
-    const rect = viewerRef.current?.getBoundingClientRect()
-    if (!rect) return
-    
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-    
+  // Callbacks for ArtifactRenderer
+  const handleCanvasClick = useCallback((x: number, y: number) => {
     setExpandedComment(null)
     setPendingPosition({ x, y })
-    setTimeout(() => textareaRef.current?.focus(), 50)
-  }
+  }, [])
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (mode === 'feedback' && viewerRef.current) {
-      const rect = viewerRef.current.getBoundingClientRect()
-      setCursorPos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      })
-      setIsOverViewer(true)
-    }
-  }
-
-  const handleMouseLeave = () => {
-    setIsOverViewer(false)
-  }
-
-  // Pass wheel events through overlay to iframe for scrolling
-  const handleWheel = (e: React.WheelEvent) => {
-    const iframe = viewerRef.current?.querySelector('iframe')
-    if (iframe?.contentWindow) {
-      iframe.contentWindow.scrollBy(e.deltaX, e.deltaY)
-    }
-  }
-
-  const handlePinClick = (e: React.MouseEvent, comment: Comment) => {
-    e.stopPropagation()
+  const handlePinClick = useCallback((commentId: string) => {
+    const comment = comments.find(c => c.id === commentId)
+    if (!comment) return
+    
     // Can expand if: owner of artifact OR owner of comment
     const canExpand = isOwner || comment.user_id === user?.id
     if (canExpand) {
-      setExpandedComment(expandedComment === comment.id ? null : comment.id)
+      setExpandedComment(expandedComment === commentId ? null : commentId)
       setPendingPosition(null)
     }
-  }
+  }, [comments, isOwner, user, expandedComment])
 
-  // Calculate smart position for cards (avoid edges)
-  const getCardPosition = (xPercent: number, yPercent: number): React.CSSProperties => {
-    const isNearRight = xPercent > 65
-    const isNearBottom = yPercent > 70
-    const isNearTop = yPercent < 15
-    
-    const position: React.CSSProperties = {
-      position: 'absolute',
-    }
-    
-    // Horizontal positioning
-    if (isNearRight) {
-      position.right = '40px'
-      position.left = 'auto'
-    } else {
-      position.left = '40px'
-      position.right = 'auto'
-    }
-    
-    // Vertical positioning
-    if (isNearBottom) {
-      position.bottom = '-10px'
-      position.top = 'auto'
-    } else if (isNearTop) {
-      position.top = '-10px'
-    } else {
-      position.top = '-10px'
-    }
-    
-    return position
-  }
-
-  const handleSubmitComment = async () => {
-    if (!inputValue.trim() || !pendingPosition || !id || !user) return
-    
-    setSubmitting(true)
-    
-    try {
-      const { data, error: insertError } = await supabase
-        .from('comments')
-        .insert({
-          artifact_id: id,
-          user_id: user.id,
-          user_name: userName,
-          x_percent: pendingPosition.x,
-          y_percent: pendingPosition.y,
-          message: inputValue.trim()
-        })
-        .select()
-        .single()
-
-      if (insertError) throw insertError
-      
-      setComments([...comments, data])
-      setPendingPosition(null)
-      setInputValue('')
-    } catch (err) {
-      console.error('Error submitting comment:', err)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleCommentKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmitComment()
-    } else if (e.key === 'Escape') {
-      setPendingPosition(null)
-      setInputValue('')
-    }
-  }
+  const handleClosePending = useCallback(() => {
+    setPendingPosition(null)
+  }, [])
 
   const goToComment = (commentId: string) => {
-    setMode('feedback') // Switch to feedback mode to show pins
+    setMode('feedback')
     setView('artifact')
     setTimeout(() => setExpandedComment(commentId), 100)
   }
@@ -550,131 +486,17 @@ export default function ViewerPage() {
   if (isFullscreen) {
     return (
       <div style={styles.fullscreenContainer}>
-        <div
-          ref={viewerRef}
-          style={styles.fullscreenViewer}
-          onClick={handleViewerClick}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-        >
-          <ArtifactRenderer code={artifact.code} />
-          
-          {/* Overlay for feedback mode */}
-          {mode === 'feedback' && (
-            <div style={styles.feedbackOverlayFullscreen} onWheel={handleWheel}>
-              {/* Comment pins */}
-              {visibleComments.map((comment) => {
-                const isExpanded = expandedComment === comment.id
-                const isMine = comment.user_id === user?.id
-                
-                return (
-                  <div
-                    key={comment.id}
-                    data-pin="true"
-                    style={{
-                      ...styles.pinContainer,
-                      left: `${comment.x_percent}%`,
-                      top: `${comment.y_percent}%`,
-                      zIndex: isExpanded ? 100 : 10,
-                    }}
-                  >
-                    <div
-                      style={{
-                        ...styles.pin,
-                        ...(isMine ? styles.pinMine : styles.pinOther),
-                        ...(isExpanded ? styles.pinExpanded : {}),
-                      }}
-                      onClick={(e) => handlePinClick(e, comment)}
-                    >
-                      {getInitials(comment.user_name)}
-                    </div>
-                    
-                    {isExpanded && (
-                      <div style={{...styles.commentCard, ...getCardPosition(comment.x_percent, comment.y_percent)}} onClick={(e) => e.stopPropagation()}>
-                        <div style={styles.commentCardHeader}>
-                          <div style={styles.commentCardUser}>{comment.user_name}</div>
-                          <div style={styles.commentCardTime}>{formatTime(comment.created_at)}</div>
-                        </div>
-                        <div style={styles.commentCardMessage}>{comment.message}</div>
-                        <button 
-                          style={styles.closeCommentBtn}
-                          onClick={() => setExpandedComment(null)}
-                        >
-                          <CloseIcon />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-              
-              {/* Pending new comment */}
-              {pendingPosition && (
-                <div
-                  data-input-card="true"
-                  style={{
-                    ...styles.pinContainer,
-                    left: `${pendingPosition.x}%`,
-                    top: `${pendingPosition.y}%`,
-                    zIndex: 200,
-                  }}
-                >
-                  <div style={{ ...styles.pin, ...styles.pinMine, ...styles.pinNew }}>
-                    {getInitials(userName)}
-                  </div>
-                  
-                  <div style={{...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y)}} onClick={(e) => e.stopPropagation()}>
-                    <div style={styles.inputHeader}>
-                      <span style={styles.inputUser}>{userName}</span>
-                    </div>
-                    <textarea
-                      ref={textareaRef}
-                      style={styles.input}
-                      value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
-                      onKeyDown={handleCommentKeyDown}
-                      placeholder="Add your feedback..."
-                      rows={2}
-                    />
-                    <div style={styles.inputFooter}>
-                      <span style={styles.hint}>Enter ↵</span>
-                      <div style={styles.inputActions}>
-                        <button 
-                          style={styles.cancelBtn}
-                          onClick={() => { setPendingPosition(null); setInputValue(''); }}
-                        >
-                          Cancel
-                        </button>
-                        <button 
-                          style={{
-                            ...styles.sendBtn,
-                            opacity: inputValue.trim() && !submitting ? 1 : 0.5,
-                          }}
-                          onClick={handleSubmitComment}
-                          disabled={!inputValue.trim() || submitting}
-                        >
-                          <SendIcon />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Cursor indicator */}
-              {isOverViewer && !pendingPosition && !expandedComment && (
-                <div 
-                  style={{
-                    ...styles.cursor,
-                    left: cursorPos.x,
-                    top: cursorPos.y,
-                  }}
-                >
-                  + Click to comment
-                </div>
-              )}
-            </div>
-          )}
+        <div style={styles.fullscreenViewer}>
+          <ArtifactRenderer
+            code={artifact.code}
+            feedbackMode={mode === 'feedback'}
+            comments={feedbackComments}
+            pendingComment={pendingPosition}
+            userName={userName}
+            onCanvasClick={handleCanvasClick}
+            onPinClick={handlePinClick}
+            onClosePending={handleClosePending}
+          />
         </div>
 
         {/* Exit fullscreen button */}
@@ -713,7 +535,7 @@ export default function ViewerPage() {
               {/* Mode toggle (icon buttons) */}
               <div style={styles.seg} role="group" aria-label="Mode">
                 <button
-                  onClick={() => { setMode('browsing'); setIsOverViewer(false); setPendingPosition(null); setExpandedComment(null); }}
+                  onClick={() => { setMode('browsing'); setPendingPosition(null); setExpandedComment(null); }}
                   style={{
                     ...styles.segIconButton,
                     ...(mode === 'browsing' ? styles.segButtonBrowsingActive : {}),
@@ -832,134 +654,21 @@ export default function ViewerPage() {
 
       <main style={styles.mainViewer}>
         <section
-          ref={viewerRef}
           style={{
             ...styles.viewer,
             borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20, 18, 15, 0.25)',
-            cursor: mode === 'feedback' ? 'crosshair' : 'default',
           }}
-          onClick={handleViewerClick}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
         >
-          <ArtifactRenderer code={artifact.code} />
-          
-          {/* Feedback overlay */}
-          {mode === 'feedback' && (
-            <div style={styles.feedbackOverlay} onWheel={handleWheel}>
-              {/* Comment pins */}
-              {visibleComments.map((comment) => {
-                const isExpanded = expandedComment === comment.id
-                const isMine = comment.user_id === user?.id
-                
-                return (
-                  <div
-                    key={comment.id}
-                    data-pin="true"
-                    style={{
-                      ...styles.pinContainer,
-                      left: `${comment.x_percent}%`,
-                      top: `${comment.y_percent}%`,
-                      zIndex: isExpanded ? 100 : 10,
-                    }}
-                  >
-                    <div
-                      style={{
-                        ...styles.pin,
-                        ...(isMine ? styles.pinMine : styles.pinOther),
-                        ...(isExpanded ? styles.pinExpanded : {}),
-                      }}
-                      onClick={(e) => handlePinClick(e, comment)}
-                    >
-                      {getInitials(comment.user_name)}
-                    </div>
-                    
-                    {isExpanded && (
-                      <div style={{...styles.commentCard, ...getCardPosition(comment.x_percent, comment.y_percent)}} onClick={(e) => e.stopPropagation()}>
-                        <div style={styles.commentCardHeader}>
-                          <div style={styles.commentCardUser}>{comment.user_name}</div>
-                          <div style={styles.commentCardTime}>{formatTime(comment.created_at)}</div>
-                        </div>
-                        <div style={styles.commentCardMessage}>{comment.message}</div>
-                        <button 
-                          style={styles.closeCommentBtn}
-                          onClick={() => setExpandedComment(null)}
-                        >
-                          <CloseIcon />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-              
-              {/* Pending new comment */}
-              {pendingPosition && (
-                <div
-                  data-input-card="true"
-                  style={{
-                    ...styles.pinContainer,
-                    left: `${pendingPosition.x}%`,
-                    top: `${pendingPosition.y}%`,
-                    zIndex: 200,
-                  }}
-                >
-                  <div style={{ ...styles.pin, ...styles.pinMine, ...styles.pinNew }}>
-                    {getInitials(userName)}
-                  </div>
-                  
-                  <div style={{...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y)}} onClick={(e) => e.stopPropagation()}>
-                    <div style={styles.inputHeader}>
-                      <span style={styles.inputUser}>{userName}</span>
-                    </div>
-                    <textarea
-                      ref={textareaRef}
-                      style={styles.input}
-                      value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
-                      onKeyDown={handleCommentKeyDown}
-                      placeholder="Add your feedback..."
-                      rows={2}
-                    />
-                    <div style={styles.inputFooter}>
-                      <span style={styles.hint}>Enter ↵</span>
-                      <div style={styles.inputActions}>
-                        <button 
-                          style={styles.cancelBtn}
-                          onClick={() => { setPendingPosition(null); setInputValue(''); }}
-                        >
-                          Cancel
-                        </button>
-                        <button 
-                          style={{
-                            ...styles.sendBtn,
-                            opacity: inputValue.trim() && !submitting ? 1 : 0.5,
-                          }}
-                          onClick={handleSubmitComment}
-                          disabled={!inputValue.trim() || submitting}
-                        >
-                          <SendIcon />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Cursor indicator */}
-              {isOverViewer && !pendingPosition && !expandedComment && (
-                <div 
-                  style={{
-                    ...styles.cursor,
-                    left: cursorPos.x,
-                    top: cursorPos.y,
-                  }}
-                >
-                  + Click to comment
-                </div>
-              )}
-            </div>
-          )}
+          <ArtifactRenderer
+            code={artifact.code}
+            feedbackMode={mode === 'feedback'}
+            comments={feedbackComments}
+            pendingComment={pendingPosition}
+            userName={userName}
+            onCanvasClick={handleCanvasClick}
+            onPinClick={handlePinClick}
+            onClosePending={handleClosePending}
+          />
         </section>
       </main>
     </div>
@@ -1098,7 +807,6 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#6b7cff',
     color: '#fff',
   },
-  // All comments button
   allCommentsBtn: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -1217,181 +925,6 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'rgba(20, 18, 15, 0.15)',
     margin: '0 10px',
   },
-  feedbackOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 10,
-  },
-  feedbackOverlayFullscreen: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 10,
-  },
-  // Pin styles
-  pinContainer: {
-    position: 'absolute',
-    transform: 'translate(-50%, -50%)',
-  },
-  pin: {
-    width: '32px',
-    height: '32px',
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '11px',
-    fontWeight: 700,
-    cursor: 'pointer',
-    transition: 'transform 0.15s, box-shadow 0.15s',
-    border: '2px solid #fff',
-  },
-  pinMine: {
-    backgroundColor: '#6b7cff',
-    color: '#fff',
-    boxShadow: '0 2px 8px rgba(107, 124, 255, 0.4)',
-  },
-  pinOther: {
-    backgroundColor: '#14120f',
-    color: '#fff',
-    boxShadow: '0 2px 8px rgba(20, 18, 15, 0.3)',
-  },
-  pinExpanded: {
-    transform: 'scale(1.1)',
-    boxShadow: '0 4px 12px rgba(107, 124, 255, 0.5)',
-  },
-  pinNew: {
-    animation: 'pop 0.2s ease-out',
-  },
-  // Comment card
-  commentCard: {
-    position: 'absolute',
-    width: 'min(240px, calc(100vw - 80px))',
-    padding: '14px',
-    borderRadius: '12px',
-    backgroundColor: '#fff',
-    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-    border: '1px solid rgba(20, 18, 15, 0.1)',
-  },
-  commentCardHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '8px',
-  },
-  commentCardUser: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: '#14120f',
-  },
-  commentCardTime: {
-    fontSize: '11px',
-    color: 'rgba(20, 18, 15, 0.45)',
-  },
-  commentCardMessage: {
-    fontSize: '13px',
-    color: 'rgba(20, 18, 15, 0.75)',
-    lineHeight: 1.5,
-  },
-  closeCommentBtn: {
-    position: 'absolute',
-    top: '10px',
-    right: '10px',
-    width: '22px',
-    height: '22px',
-    borderRadius: '6px',
-    border: 'none',
-    backgroundColor: 'rgba(20, 18, 15, 0.06)',
-    color: 'rgba(20, 18, 15, 0.5)',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Input card
-  inputCard: {
-    position: 'absolute',
-    width: 'min(260px, calc(100vw - 80px))',
-    padding: '14px',
-    borderRadius: '12px',
-    backgroundColor: '#fff',
-    boxShadow: '0 4px 24px rgba(0, 0, 0, 0.18)',
-    border: '1px solid rgba(107, 124, 255, 0.3)',
-  },
-  inputHeader: {
-    marginBottom: '10px',
-  },
-  inputUser: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: '#14120f',
-  },
-  input: {
-    width: '100%',
-    padding: '10px 12px',
-    borderRadius: '8px',
-    border: '1px solid rgba(20, 18, 15, 0.14)',
-    backgroundColor: '#fafafa',
-    fontSize: '13px',
-    lineHeight: 1.5,
-    resize: 'none',
-    outline: 'none',
-    fontFamily: 'inherit',
-  },
-  inputFooter: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: '10px',
-  },
-  hint: {
-    fontSize: '11px',
-    color: 'rgba(20, 18, 15, 0.4)',
-  },
-  inputActions: {
-    display: 'flex',
-    gap: '6px',
-  },
-  cancelBtn: {
-    padding: '6px 10px',
-    borderRadius: '6px',
-    border: '1px solid rgba(20, 18, 15, 0.14)',
-    backgroundColor: '#fff',
-    color: 'rgba(20, 18, 15, 0.6)',
-    fontSize: '12px',
-    cursor: 'pointer',
-  },
-  sendBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '32px',
-    height: '32px',
-    borderRadius: '8px',
-    border: 'none',
-    backgroundColor: '#6b7cff',
-    color: '#fff',
-    cursor: 'pointer',
-    transition: 'opacity 0.15s',
-  },
-  // Cursor
-  cursor: {
-    position: 'absolute',
-    pointerEvents: 'none',
-    transform: 'translate(12px, 12px)',
-    padding: '5px 10px',
-    borderRadius: '6px',
-    backgroundColor: 'rgba(20, 18, 15, 0.8)',
-    color: '#fff',
-    fontSize: '12px',
-    fontWeight: 500,
-    whiteSpace: 'nowrap',
-  },
   // Table view styles
   backBtn: {
     display: 'inline-flex',
@@ -1405,6 +938,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
     fontWeight: 500,
     cursor: 'pointer',
+  },
+  privateBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 14px',
+    borderRadius: '10px',
+    backgroundColor: 'rgba(107, 124, 255, 0.08)',
+    border: '1px solid rgba(107, 124, 255, 0.2)',
+    color: 'rgba(20, 18, 15, 0.7)',
+    fontSize: '13px',
+    fontWeight: 500,
   },
   tableContainer: {
     maxWidth: '900px',
@@ -1494,17 +1039,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     fontWeight: 500,
     cursor: 'pointer',
-  },
-  privateBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '8px 14px',
-    borderRadius: '10px',
-    backgroundColor: 'rgba(107, 124, 255, 0.08)',
-    border: '1px solid rgba(107, 124, 255, 0.2)',
-    color: 'rgba(20, 18, 15, 0.7)',
-    fontSize: '13px',
-    fontWeight: 500,
   },
 }
