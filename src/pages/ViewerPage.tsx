@@ -302,6 +302,14 @@ export default function ViewerPage() {
     setIsOverViewer(false)
   }
 
+  // Pass wheel events through overlay to iframe for scrolling
+  const handleWheel = (e: React.WheelEvent) => {
+    const iframe = viewerRef.current?.querySelector('iframe')
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.scrollBy(e.deltaX, e.deltaY)
+    }
+  }
+
   const handlePinClick = (e: React.MouseEvent, comment: Comment) => {
     e.stopPropagation()
     // Can expand if: owner of artifact OR owner of comment
@@ -553,7 +561,7 @@ export default function ViewerPage() {
           
           {/* Overlay for feedback mode */}
           {mode === 'feedback' && (
-            <div style={styles.feedbackOverlayFullscreen}>
+            <div style={styles.feedbackOverlayFullscreen} onWheel={handleWheel}>
               {/* Comment pins */}
               {visibleComments.map((comment) => {
                 const isExpanded = expandedComment === comment.id
@@ -838,7 +846,7 @@ export default function ViewerPage() {
           
           {/* Feedback overlay */}
           {mode === 'feedback' && (
-            <div style={styles.feedbackOverlay}>
+            <div style={styles.feedbackOverlay} onWheel={handleWheel}>
               {/* Comment pins */}
               {visibleComments.map((comment) => {
                 const isExpanded = expandedComment === comment.id
@@ -1216,7 +1224,6 @@ const styles: Record<string, React.CSSProperties> = {
     right: 0,
     bottom: 0,
     zIndex: 10,
-    pointerEvents: 'none',
   },
   feedbackOverlayFullscreen: {
     position: 'absolute',
@@ -1225,13 +1232,11 @@ const styles: Record<string, React.CSSProperties> = {
     right: 0,
     bottom: 0,
     zIndex: 10,
-    pointerEvents: 'none',
   },
   // Pin styles
   pinContainer: {
     position: 'absolute',
     transform: 'translate(-50%, -50%)',
-    pointerEvents: 'auto',
   },
   pin: {
     width: '32px',
