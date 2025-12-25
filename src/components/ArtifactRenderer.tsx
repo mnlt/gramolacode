@@ -826,7 +826,6 @@ function analyzeCode(code: string): CodeAnalysis {
   let importMatch
 
   while ((importMatch = importRegex.exec(code)) !== null) {
-    const _namedImports = importMatch[2]
     const source = importMatch[3]
 
     const isShadcn = source.startsWith('@/components/ui/')
