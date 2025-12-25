@@ -412,7 +412,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '14px', 
     border: '2px solid rgba(20,18,15,0.25)', 
     transition: 'border-color 0.2s',
-    overflow: 'hidden',
   },
   overlay: { 
     position: 'absolute', 

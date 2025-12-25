@@ -30,35 +30,52 @@ export default function ArtifactRenderer({ code, onHeightChange }: ArtifactRende
     const iframe = containerRef.current.querySelector('iframe') as HTMLIFrameElement
     if (!iframe) return
     
+    let height = 400
+    
     try {
       const doc = iframe.contentDocument || iframe.contentWindow?.document
-      if (!doc?.body) return
-      
-      // Calcular altura real del contenido
-      const height = Math.max(
-        doc.body.scrollHeight,
-        doc.body.offsetHeight,
-        doc.documentElement?.scrollHeight || 0,
-        doc.documentElement?.offsetHeight || 0,
-        400
-      )
-      
-      // Deshabilitar scroll interno del iframe
-      doc.body.style.overflow = 'hidden'
-      doc.documentElement.style.overflow = 'hidden'
-      
-      // Aplicar altura al iframe
-      iframe.style.height = `${height}px`
-      
-      // Notificar al padre
-      if (onHeightChange) {
-        onHeightChange(height)
+      if (doc?.body) {
+        // Calcular altura real del contenido
+        height = Math.max(
+          doc.body.scrollHeight,
+          doc.body.offsetHeight,
+          doc.documentElement?.scrollHeight || 0,
+          doc.documentElement?.offsetHeight || 0,
+          400
+        )
+        
+        // Deshabilitar scroll interno del iframe
+        doc.body.style.overflow = 'hidden'
+        doc.documentElement.style.overflow = 'hidden'
       }
     } catch {
-      // CORS - usar altura por defecto
-      if (onHeightChange) {
-        onHeightChange(600)
-      }
+      // CORS - continuar con altura por defecto
+    }
+    
+    // Aplicar altura al iframe con !important para sobrescribir estilos inline
+    iframe.style.setProperty('height', `${height}px`, 'important')
+    iframe.style.setProperty('max-height', 'none', 'important')
+    iframe.style.setProperty('min-height', `${height}px`, 'important')
+    
+    // Recorrer TODOS los ancestros hasta nuestro contenedor y expandirlos
+    let element = iframe.parentElement
+    while (element && element !== containerRef.current && element !== document.body) {
+      element.style.setProperty('height', `${height}px`, 'important')
+      element.style.setProperty('max-height', 'none', 'important')
+      element.style.setProperty('min-height', `${height}px`, 'important')
+      element.style.setProperty('overflow', 'visible', 'important')
+      element = element.parentElement
+    }
+    
+    // Expandir nuestro contenedor también
+    if (containerRef.current) {
+      containerRef.current.style.setProperty('height', `${height}px`, 'important')
+      containerRef.current.style.setProperty('min-height', `${height}px`, 'important')
+    }
+    
+    // Notificar al padre
+    if (onHeightChange) {
+      onHeightChange(height)
     }
   }, [onHeightChange])
 
