@@ -1,704 +1,16 @@
-import React, { useMemo, useEffect, useRef } from 'react'
+import React, { useMemo } from 'react'
 import {
   SandpackProvider,
   SandpackPreview,
-  useSandpack,
 } from '@codesandbox/sandpack-react'
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-export interface FeedbackComment {
-  id: string
-  user_name: string
-  x_percent: number
-  y_percent: number
-  message: string
-  isMine: boolean
-  isExpanded?: boolean
-}
-
-export interface PendingComment {
-  x: number
-  y: number
-}
 
 interface ArtifactRendererProps {
   code: string
-  // Feedback props
-  feedbackMode?: boolean
-  comments?: FeedbackComment[]
-  pendingComment?: PendingComment | null
-  userName?: string
-  onCanvasClick?: (x: number, y: number) => void
-  onPinClick?: (commentId: string) => void
-  onClosePending?: () => void
 }
 
 // ============================================================================
-// FEEDBACK SCRIPT - This gets injected into the iframe
+// FIX DE TEMPLATE LITERALS ROTOS - VERSIÓN COMPLETA
 // ============================================================================
-
-const FEEDBACK_SCRIPT = `
-(function() {
-  // State
-  let feedbackMode = false;
-  let comments = [];
-  let pendingComment = null;
-  let userName = '';
-  let expandedCommentId = null;
-  
-  // Container for feedback UI
-  let feedbackContainer = null;
-  let cursorIndicator = null;
-  
-  function getInitials(name) {
-    return name.split(' ').map(n => n[0]).join('').toUpperCase();
-  }
-  
-  function createFeedbackContainer() {
-    if (feedbackContainer) return;
-    
-    feedbackContainer = document.createElement('div');
-    feedbackContainer.id = 'gramola-feedback-container';
-    feedbackContainer.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 999999;';
-    document.body.appendChild(feedbackContainer);
-    
-    // Make body relative if not already
-    const bodyStyle = window.getComputedStyle(document.body);
-    if (bodyStyle.position === 'static') {
-      document.body.style.position = 'relative';
-    }
-    
-    // Ensure min height covers viewport
-    document.body.style.minHeight = '100vh';
-  }
-  
-  function createCursorIndicator() {
-    if (cursorIndicator) return;
-    
-    cursorIndicator = document.createElement('div');
-    cursorIndicator.id = 'gramola-cursor';
-    cursorIndicator.style.cssText = \`
-      position: fixed;
-      pointer-events: none;
-      padding: 5px 10px;
-      border-radius: 6px;
-      background-color: rgba(20, 18, 15, 0.8);
-      color: #fff;
-      font-size: 12px;
-      font-weight: 500;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      white-space: nowrap;
-      z-index: 9999999;
-      display: none;
-      transform: translate(12px, 12px);
-    \`;
-    cursorIndicator.textContent = '+ Click to comment';
-    document.body.appendChild(cursorIndicator);
-  }
-  
-  function renderPins() {
-    if (!feedbackContainer) return;
-    
-    // Clear existing pins
-    feedbackContainer.innerHTML = '';
-    
-    // Render comment pins
-    comments.forEach(comment => {
-      const pin = createPin(comment);
-      feedbackContainer.appendChild(pin);
-    });
-    
-    // Render pending comment pin
-    if (pendingComment) {
-      const pendingPin = createPendingPin(pendingComment);
-      feedbackContainer.appendChild(pendingPin);
-    }
-  }
-  
-  function createPin(comment) {
-    const container = document.createElement('div');
-    container.style.cssText = \`
-      position: absolute;
-      left: \${comment.x_percent}%;
-      top: \${comment.y_percent}%;
-      transform: translate(-50%, -50%);
-      pointer-events: auto;
-      z-index: \${comment.isExpanded ? 100 : 10};
-    \`;
-    
-    const pin = document.createElement('div');
-    pin.style.cssText = \`
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 700;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      cursor: pointer;
-      border: 2px solid #fff;
-      background-color: \${comment.isMine ? '#6b7cff' : '#14120f'};
-      color: #fff;
-      box-shadow: 0 2px 8px \${comment.isMine ? 'rgba(107, 124, 255, 0.4)' : 'rgba(20, 18, 15, 0.3)'};
-      transition: transform 0.15s, box-shadow 0.15s;
-      \${comment.isExpanded ? 'transform: scale(1.1); box-shadow: 0 4px 12px rgba(107, 124, 255, 0.5);' : ''}
-    \`;
-    pin.textContent = getInitials(comment.user_name);
-    pin.onclick = (e) => {
-      e.stopPropagation();
-      window.parent.postMessage({ type: 'gramola-pin-click', commentId: comment.id }, '*');
-    };
-    
-    container.appendChild(pin);
-    
-    // Render expanded card
-    if (comment.isExpanded) {
-      const card = createCommentCard(comment);
-      container.appendChild(card);
-    }
-    
-    return container;
-  }
-  
-  function createCommentCard(comment) {
-    const isNearRight = comment.x_percent > 65;
-    const isNearBottom = comment.y_percent > 70;
-    
-    const card = document.createElement('div');
-    card.style.cssText = \`
-      position: absolute;
-      \${isNearRight ? 'right: 40px;' : 'left: 40px;'}
-      \${isNearBottom ? 'bottom: -10px;' : 'top: -10px;'}
-      width: 240px;
-      padding: 14px;
-      border-radius: 12px;
-      background-color: #fff;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-      border: 1px solid rgba(20, 18, 15, 0.1);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      pointer-events: auto;
-    \`;
-    
-    card.innerHTML = \`
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <div style="font-size: 13px; font-weight: 600; color: #14120f;">\${comment.user_name}</div>
-        <button id="close-\${comment.id}" style="
-          width: 22px; height: 22px; border-radius: 6px; border: none;
-          background-color: rgba(20, 18, 15, 0.06); color: rgba(20, 18, 15, 0.5);
-          cursor: pointer; display: flex; align-items: center; justify-content: center;
-          font-size: 14px; line-height: 1;
-        ">×</button>
-      </div>
-      <div style="font-size: 13px; color: rgba(20, 18, 15, 0.75); line-height: 1.5;">\${comment.message}</div>
-    \`;
-    
-    card.onclick = (e) => e.stopPropagation();
-    
-    // Close button handler
-    setTimeout(() => {
-      const closeBtn = card.querySelector('#close-' + comment.id);
-      if (closeBtn) {
-        closeBtn.onclick = (e) => {
-          e.stopPropagation();
-          window.parent.postMessage({ type: 'gramola-close-expanded' }, '*');
-        };
-      }
-    }, 0);
-    
-    return card;
-  }
-  
-  function createPendingPin(pending) {
-    const isNearRight = pending.x > 65;
-    const isNearBottom = pending.y > 70;
-    
-    const container = document.createElement('div');
-    container.style.cssText = \`
-      position: absolute;
-      left: \${pending.x}%;
-      top: \${pending.y}%;
-      transform: translate(-50%, -50%);
-      pointer-events: auto;
-      z-index: 200;
-    \`;
-    
-    const pin = document.createElement('div');
-    pin.style.cssText = \`
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 700;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      cursor: pointer;
-      border: 2px solid #fff;
-      background-color: #6b7cff;
-      color: #fff;
-      box-shadow: 0 2px 8px rgba(107, 124, 255, 0.4);
-      animation: gramola-pop 0.2s ease-out;
-    \`;
-    pin.textContent = getInitials(userName);
-    
-    const card = document.createElement('div');
-    card.style.cssText = \`
-      position: absolute;
-      \${isNearRight ? 'right: 40px;' : 'left: 40px;'}
-      \${isNearBottom ? 'bottom: -10px;' : 'top: -10px;'}
-      width: 260px;
-      padding: 14px;
-      border-radius: 12px;
-      background-color: #fff;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
-      border: 1px solid rgba(107, 124, 255, 0.3);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    \`;
-    
-    card.innerHTML = \`
-      <div style="margin-bottom: 10px;">
-        <span style="font-size: 13px; font-weight: 600; color: #14120f;">\${userName}</span>
-      </div>
-      <textarea id="gramola-input" style="
-        width: 100%; padding: 10px 12px; border-radius: 8px;
-        border: 1px solid rgba(20, 18, 15, 0.14); background-color: #fafafa;
-        font-size: 13px; line-height: 1.5; resize: none; outline: none;
-        font-family: inherit; box-sizing: border-box;
-      " placeholder="Add your feedback..." rows="2"></textarea>
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-        <span style="font-size: 11px; color: rgba(20, 18, 15, 0.4);">Enter ↵</span>
-        <div style="display: flex; gap: 6px;">
-          <button id="gramola-cancel" style="
-            padding: 6px 10px; border-radius: 6px;
-            border: 1px solid rgba(20, 18, 15, 0.14); background-color: #fff;
-            color: rgba(20, 18, 15, 0.6); font-size: 12px; cursor: pointer;
-          ">Cancel</button>
-          <button id="gramola-send" style="
-            display: flex; align-items: center; justify-content: center;
-            width: 32px; height: 32px; border-radius: 8px; border: none;
-            background-color: #6b7cff; color: #fff; cursor: pointer;
-          ">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-    \`;
-    
-    card.onclick = (e) => e.stopPropagation();
-    
-    container.appendChild(pin);
-    container.appendChild(card);
-    
-    // Setup handlers after append
-    setTimeout(() => {
-      const input = document.getElementById('gramola-input');
-      const cancelBtn = document.getElementById('gramola-cancel');
-      const sendBtn = document.getElementById('gramola-send');
-      
-      if (input) {
-        input.focus();
-        input.onkeydown = (e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            const message = input.value.trim();
-            if (message) {
-              window.parent.postMessage({ type: 'gramola-submit', message, x: pending.x, y: pending.y }, '*');
-            }
-          } else if (e.key === 'Escape') {
-            window.parent.postMessage({ type: 'gramola-cancel' }, '*');
-          }
-        };
-      }
-      
-      if (cancelBtn) {
-        cancelBtn.onclick = () => {
-          window.parent.postMessage({ type: 'gramola-cancel' }, '*');
-        };
-      }
-      
-      if (sendBtn) {
-        sendBtn.onclick = () => {
-          const input = document.getElementById('gramola-input');
-          const message = input?.value?.trim();
-          if (message) {
-            window.parent.postMessage({ type: 'gramola-submit', message, x: pending.x, y: pending.y }, '*');
-          }
-        };
-      }
-    }, 0);
-    
-    return container;
-  }
-  
-  function handleDocumentClick(e) {
-    if (!feedbackMode) return;
-    
-    // Ignore clicks on pins/cards
-    if (e.target.closest('#gramola-feedback-container')) return;
-    
-    // Get coordinates relative to document (not viewport)
-    const x = ((e.pageX) / document.documentElement.scrollWidth) * 100;
-    const y = ((e.pageY) / document.documentElement.scrollHeight) * 100;
-    
-    window.parent.postMessage({ type: 'gramola-click', x, y }, '*');
-  }
-  
-  function handleMouseMove(e) {
-    if (!feedbackMode || !cursorIndicator) return;
-    if (pendingComment) {
-      cursorIndicator.style.display = 'none';
-      return;
-    }
-    
-    // Hide if over a pin or card
-    if (e.target.closest('#gramola-feedback-container')) {
-      cursorIndicator.style.display = 'none';
-      return;
-    }
-    
-    cursorIndicator.style.display = 'block';
-    cursorIndicator.style.left = e.clientX + 'px';
-    cursorIndicator.style.top = e.clientY + 'px';
-  }
-  
-  function handleMouseLeave() {
-    if (cursorIndicator) {
-      cursorIndicator.style.display = 'none';
-    }
-  }
-  
-  function updateFeedbackMode(enabled) {
-    feedbackMode = enabled;
-    document.body.style.cursor = enabled ? 'crosshair' : 'default';
-    
-    if (enabled) {
-      createFeedbackContainer();
-      createCursorIndicator();
-      renderPins();
-    } else {
-      if (feedbackContainer) {
-        feedbackContainer.innerHTML = '';
-      }
-      if (cursorIndicator) {
-        cursorIndicator.style.display = 'none';
-      }
-    }
-  }
-  
-  // Add animation keyframes
-  const style = document.createElement('style');
-  style.textContent = \`
-    @keyframes gramola-pop {
-      0% { transform: scale(0); }
-      70% { transform: scale(1.1); }
-      100% { transform: scale(1); }
-    }
-  \`;
-  document.head.appendChild(style);
-  
-  // Listen for messages from parent
-  window.addEventListener('message', (e) => {
-    if (!e.data || !e.data.type) return;
-    
-    switch (e.data.type) {
-      case 'gramola-update':
-        feedbackMode = e.data.feedbackMode;
-        comments = e.data.comments || [];
-        pendingComment = e.data.pendingComment;
-        userName = e.data.userName || '';
-        updateFeedbackMode(feedbackMode);
-        if (feedbackMode) renderPins();
-        break;
-    }
-  });
-  
-  // Setup event listeners
-  document.addEventListener('click', handleDocumentClick);
-  document.addEventListener('mousemove', handleMouseMove);
-  document.addEventListener('mouseleave', handleMouseLeave);
-  
-  // Notify parent we're ready
-  window.parent.postMessage({ type: 'gramola-ready' }, '*');
-})();
-`;
-
-// ============================================================================
-// FEEDBACK BRIDGE COMPONENT
-// ============================================================================
-
-interface FeedbackBridgeProps {
-  feedbackMode: boolean
-  comments: FeedbackComment[]
-  pendingComment: PendingComment | null
-  userName: string
-  onCanvasClick: (x: number, y: number) => void
-  onPinClick: (commentId: string) => void
-  onClosePending: () => void
-  onSubmitComment: (message: string, x: number, y: number) => void
-  onCloseExpanded: () => void
-}
-
-function FeedbackBridge({
-  feedbackMode,
-  comments,
-  pendingComment,
-  userName,
-  onCanvasClick,
-  onPinClick,
-  onClosePending,
-  onSubmitComment,
-  onCloseExpanded,
-}: FeedbackBridgeProps) {
-  const { sandpack } = useSandpack()
-  const lastUpdateRef = useRef<string>('')
-  
-  useEffect(() => {
-    const handleMessage = (e: MessageEvent) => {
-      if (!e.data || !e.data.type) return
-      
-      switch (e.data.type) {
-        case 'gramola-ready':
-          // Send initial state
-          sendUpdate()
-          break
-        case 'gramola-click':
-          onCanvasClick(e.data.x, e.data.y)
-          break
-        case 'gramola-pin-click':
-          onPinClick(e.data.commentId)
-          break
-        case 'gramola-cancel':
-          onClosePending()
-          break
-        case 'gramola-submit':
-          onSubmitComment(e.data.message, e.data.x, e.data.y)
-          break
-        case 'gramola-close-expanded':
-          onCloseExpanded()
-          break
-      }
-    }
-    
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [onCanvasClick, onPinClick, onClosePending, onSubmitComment, onCloseExpanded])
-  
-  const sendUpdate = () => {
-    const iframe = document.querySelector('.sp-preview-iframe') as HTMLIFrameElement
-    if (iframe?.contentWindow) {
-      const update = {
-        type: 'gramola-update',
-        feedbackMode,
-        comments,
-        pendingComment,
-        userName,
-      }
-      
-      // Avoid sending duplicate updates
-      const updateKey = JSON.stringify(update)
-      if (updateKey !== lastUpdateRef.current) {
-        lastUpdateRef.current = updateKey
-        iframe.contentWindow.postMessage(update, '*')
-      }
-    }
-  }
-  
-  useEffect(() => {
-    sendUpdate()
-  }, [feedbackMode, comments, pendingComment, userName])
-  
-  // Re-send when sandpack status changes
-  useEffect(() => {
-    if (sandpack.status === 'running') {
-      // Wait a bit for iframe to be ready
-      const timer = setTimeout(sendUpdate, 500)
-      return () => clearTimeout(timer)
-    }
-  }, [sandpack.status])
-  
-  return null
-}
-
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
-
-export default function ArtifactRenderer({
-  code,
-  feedbackMode = false,
-  comments = [],
-  pendingComment = null,
-  userName = '',
-  onCanvasClick = () => {},
-  onPinClick = () => {},
-  onClosePending = () => {},
-}: ArtifactRendererProps) {
-  const sandpackConfig = useMemo(() => {
-    const trimmedCode = code.trim()
-
-    if (!trimmedCode) {
-      return null
-    }
-
-    // Aplicar fix de template literals rotos ANTES de analizar
-    const fixedCode = fixBrokenTemplateLiterals(trimmedCode)
-
-    const analysis = analyzeCode(fixedCode)
-    const files = buildFiles(fixedCode, analysis)
-    const dependencies = buildDependencies(analysis)
-    
-    // Inject feedback script into index.html
-    if (files['/index.html']) {
-      files['/index.html'] = files['/index.html'].replace(
-        '</body>',
-        `<script>${FEEDBACK_SCRIPT}</script></body>`
-      )
-    } else {
-      // Create index.html with script
-      files['/index.html'] = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body>
-  <div id="root"></div>
-  <script>${FEEDBACK_SCRIPT}</script>
-</body>
-</html>`
-    }
-
-    return { files, dependencies }
-  }, [code])
-  
-  // Callbacks for FeedbackBridge
-  const handleSubmitComment = (message: string, x: number, y: number) => {
-    // This will be handled by ViewerPage
-    window.dispatchEvent(new CustomEvent('gramola-submit-comment', {
-      detail: { message, x, y }
-    }))
-  }
-  
-  const handleCloseExpanded = () => {
-    window.dispatchEvent(new CustomEvent('gramola-close-expanded'))
-  }
-
-  if (!sandpackConfig) {
-    return <div style={styles.error}>No code provided</div>
-  }
-
-  return (
-    <div style={styles.container}>
-      <SandpackProvider
-        template="react-ts"
-        files={sandpackConfig.files}
-        customSetup={{
-          dependencies: sandpackConfig.dependencies,
-        }}
-        options={{
-          externalResources: [
-            'https://cdn.tailwindcss.com',
-          ],
-        }}
-        style={{ height: '100%' }}
-      >
-        <SandpackPreview
-          style={{ height: '100%' }}
-          showNavigator={false}
-          showRefreshButton={false}
-          showOpenInCodeSandbox={false}
-        />
-        <FeedbackBridge
-          feedbackMode={feedbackMode}
-          comments={comments}
-          pendingComment={pendingComment}
-          userName={userName}
-          onCanvasClick={onCanvasClick}
-          onPinClick={onPinClick}
-          onClosePending={onClosePending}
-          onSubmitComment={handleSubmitComment}
-          onCloseExpanded={handleCloseExpanded}
-        />
-      </SandpackProvider>
-    </div>
-  )
-}
-
-// ============================================================================
-// STYLES
-// ============================================================================
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    width: '100%',
-    height: '100%',
-    minHeight: '400px',
-  },
-  error: {
-    padding: '20px',
-    color: '#dc2626',
-    textAlign: 'center',
-  },
-}
-
-// ============================================================================
-// CODE ANALYSIS (keep existing implementation)
-// ============================================================================
-
-interface CodeAnalysis {
-  imports: ImportInfo[]
-  shadcnComponents: string[]
-  npmPackages: Set<string>
-  isMarkdown: boolean
-  isPlainHTML: boolean
-  isFullDocument: boolean
-}
-
-interface ImportInfo {
-  full: string
-  source: string
-  isShadcn: boolean
-}
-
-function fixBrokenTemplateLiterals(code: string): string {
-  const allInterpolations = (code.match(/\$\{/g) || []).length
-  const validMatches = code.match(/`[^`]*\$\{[^`]*`/g) || []
-  let validInterpolations = 0
-  validMatches.forEach(m => {
-    validInterpolations += (m.match(/\$\{/g) || []).length
-  })
-  
-  if (allInterpolations === validInterpolations) {
-    return code
-  }
-  
-  let fixed = code
-  fixed = fixReturnStatements(fixed)
-  fixed = fixAssignments(fixed)
-  fixed = fixClassNameAttributes(fixed)
-  
-  return fixed
-}
-
-function fixReturnStatements(code: string): string {
-  return code.replace(/return\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (_match, content) => {
-    return 'return `' + content + '`'
-  })
-}
-
-function fixAssignments(code: string): string {
-  return code.replace(/=\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (_match, content) => {
-    return '= `' + content + '`'
-  })
-}
 
 function findMatchingBrace(code: string, startIdx: number): number {
   let depth = 0
@@ -797,6 +109,116 @@ function fixClassNameAttributes(code: string): string {
   return result
 }
 
+function fixReturnStatements(code: string): string {
+  return code.replace(/return\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (_m, content) => {
+    return 'return `' + content + '`'
+  })
+}
+
+function fixAssignments(code: string): string {
+  return code.replace(/=\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (_m, content) => {
+    return '= `' + content + '`'
+  })
+}
+
+function fixBrokenTemplateLiterals(code: string): string {
+  const allInterpolations = (code.match(/\$\{/g) || []).length
+  const validMatches = code.match(/`[^`]*\$\{[^`]*`/g) || []
+  let validInterpolations = 0
+  validMatches.forEach(m => {
+    validInterpolations += (m.match(/\$\{/g) || []).length
+  })
+  
+  if (allInterpolations === validInterpolations) {
+    return code
+  }
+  
+  let fixed = code
+  fixed = fixReturnStatements(fixed)
+  fixed = fixAssignments(fixed)
+  fixed = fixClassNameAttributes(fixed)
+  
+  return fixed
+}
+
+export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
+  const sandpackConfig = useMemo(() => {
+    const trimmedCode = code.trim()
+
+    if (!trimmedCode) {
+      return null
+    }
+
+    const fixedCode = fixBrokenTemplateLiterals(trimmedCode)
+    const analysis = analyzeCode(fixedCode)
+    const files = buildFiles(fixedCode, analysis)
+    const dependencies = buildDependencies(analysis)
+
+    return { files, dependencies }
+  }, [code])
+
+  if (!sandpackConfig) {
+    return <div style={styles.error}>No code provided</div>
+  }
+
+  return (
+    <div style={styles.container}>
+      <SandpackProvider
+        template="react-ts"
+        files={sandpackConfig.files}
+        customSetup={{
+          dependencies: sandpackConfig.dependencies,
+        }}
+        options={{
+          externalResources: [
+            'https://cdn.tailwindcss.com',
+          ],
+        }}
+        style={{ height: '100%' }}
+      >
+        <SandpackPreview
+          style={{ height: '100%' }}
+          showNavigator={false}
+          showRefreshButton={false}
+          showOpenInCodeSandbox={false}
+        />
+      </SandpackProvider>
+    </div>
+  )
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    width: '100%',
+    height: '100%',
+    minHeight: '400px',
+  },
+  error: {
+    padding: '20px',
+    color: '#dc2626',
+    textAlign: 'center',
+  },
+}
+
+// ============================================================================
+// ANÁLISIS DE CÓDIGO
+// ============================================================================
+
+interface CodeAnalysis {
+  imports: ImportInfo[]
+  shadcnComponents: string[]
+  npmPackages: Set<string>
+  isMarkdown: boolean
+  isPlainHTML: boolean
+  isFullDocument: boolean
+}
+
+interface ImportInfo {
+  full: string
+  source: string
+  isShadcn: boolean
+}
+
 function analyzeCode(code: string): CodeAnalysis {
   const imports: ImportInfo[] = []
   const shadcnComponents: string[] = []
@@ -827,7 +249,6 @@ function analyzeCode(code: string): CodeAnalysis {
 
   while ((importMatch = importRegex.exec(code)) !== null) {
     const source = importMatch[3]
-
     const isShadcn = source.startsWith('@/components/ui/')
 
     imports.push({ full: importMatch[0], source, isShadcn })
