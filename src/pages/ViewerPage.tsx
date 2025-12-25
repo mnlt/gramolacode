@@ -256,7 +256,7 @@ export default function ViewerPage() {
 
   if (isFullscreen) return (
     <div style={styles.fullscreenContainer}>
-      <div ref={viewerRef} style={styles.fullscreenViewer}>
+      <div ref={viewerRef} style={{ ...styles.fullscreenViewer, height: contentHeight }}>
         <ArtifactRenderer code={artifact.code} onHeightChange={handleContentHeight} />
         {mode === 'feedback' && (
           <div style={{ ...styles.fullscreenOverlay, height: contentHeight }} onClick={handleOverlayClick} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
@@ -334,6 +334,8 @@ export default function ViewerPage() {
           style={{ 
             ...styles.viewer, 
             borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20,18,15,0.25)',
+            height: contentHeight,
+            minHeight: 400,
           }}
         >
           <ArtifactRenderer code={artifact.code} onHeightChange={handleContentHeight} />
@@ -404,22 +406,19 @@ const styles: Record<string, React.CSSProperties> = {
   allCommentsBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '34px', padding: '0 12px', borderRadius: '10px', border: '1px solid rgba(20,18,15,0.16)', backgroundColor: '#fff', color: '#14120f', fontSize: '13px', fontWeight: 500, cursor: 'pointer' },
   mainCenter: { maxWidth: '1100px', margin: '0 auto', padding: '16px 20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 96px)' },
   mainViewer: { maxWidth: '1100px', margin: '0 auto', padding: '16px 16px 24px' },
-  // CAMBIO CLAVE: El viewer NO tiene overflow hidden, se expande con el contenido
   viewer: { 
     position: 'relative', 
     backgroundColor: '#fff', 
     borderRadius: '14px', 
     border: '2px solid rgba(20,18,15,0.25)', 
     transition: 'border-color 0.2s',
-    // No overflow hidden - el contenido determina la altura
+    overflow: 'hidden',
   },
-  // El overlay cubre todo el contenido expandido
   overlay: { 
     position: 'absolute', 
     top: 0, 
     left: 0, 
     right: 0, 
-    // La altura se establece dinámicamente basada en contentHeight
     cursor: 'crosshair', 
     zIndex: 10 
   },
