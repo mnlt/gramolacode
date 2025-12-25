@@ -16,6 +16,58 @@ const getStoredName = () => { const s = localStorage.getItem(NAME_KEY)?.trim(); 
 const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase()
 const formatTime = (ts: string) => { const d = Date.now() - new Date(ts).getTime(); if (d < 60000) return 'just now'; if (d < 3600000) return `${Math.floor(d / 60000)}m ago`; if (d < 86400000) return `${Math.floor(d / 3600000)}h ago`; return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }
 
+// Hook to get iframe content height and sync scroll
+function useIframeSync(viewerRef: React.RefObject<HTMLDivElement>, mode: Mode) {
+  const [contentHeight, setContentHeight] = useState<number>(0)
+  const [scrollTop, setScrollTop] = useState(0)
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  
+  // Get iframe and measure content height
+  useEffect(() => {
+    const checkHeight = () => {
+      const iframe = viewerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
+      if (!iframe) return
+      
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document
+        if (doc?.body) {
+          const height = Math.max(doc.body.scrollHeight, doc.documentElement?.scrollHeight || 0)
+          if (height > 0 && height !== contentHeight) {
+            setContentHeight(height)
+          }
+        }
+      } catch (e) {
+        // Cross-origin, fallback to viewport height
+        const rect = viewerRef.current?.getBoundingClientRect()
+        if (rect) setContentHeight(rect.height)
+      }
+    }
+    
+    // Check periodically until we get a valid height
+    const interval = setInterval(checkHeight, 500)
+    checkHeight()
+    
+    return () => clearInterval(interval)
+  }, [viewerRef, contentHeight])
+  
+  // Handle scroll sync
+  const handleScroll = useCallback(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    
+    const newScrollTop = scroller.scrollTop
+    setScrollTop(newScrollTop)
+    
+    // Sync iframe scroll
+    const iframe = viewerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.scrollTo(0, newScrollTop)
+    }
+  }, [viewerRef])
+  
+  return { contentHeight, scrollTop, scrollerRef, handleScroll }
+}
+
 // Icons
 const CopyIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 const CheckIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -61,6 +113,9 @@ export default function ViewerPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const viewerRef = useRef<HTMLDivElement>(null)
+  
+  // Iframe sync for scroll
+  const { contentHeight, scrollTop, scrollerRef, handleScroll } = useIframeSync(viewerRef, mode)
 
   const isOwner = artifact && user && artifact.user_id === user.id
   const visibleComments = isOwner ? comments : comments.filter(c => c.user_id === user?.id)
@@ -128,8 +183,13 @@ export default function ViewerPage() {
     const rect = viewerRef.current?.getBoundingClientRect()
     if (!rect) return
     
+    // X is simple percentage of width
     const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
+    
+    // Y needs to account for scroll - position relative to total content height
+    const clickYInViewport = e.clientY - rect.top
+    const actualHeight = contentHeight || rect.height
+    const y = ((clickYInViewport + scrollTop) / actualHeight) * 100
     
     setExpandedComment(null)
     setPendingPosition({ x, y })
@@ -184,7 +244,25 @@ export default function ViewerPage() {
     else if (e.key === 'Escape') { setPendingPosition(null); setInputValue('') }
   }
 
-  const goToComment = (commentId: string) => { setMode('feedback'); setView('artifact'); setTimeout(() => setExpandedComment(commentId), 100) }
+  const goToComment = (commentId: string) => {
+    const comment = comments.find(c => c.id === commentId)
+    setMode('feedback')
+    setView('artifact')
+    
+    setTimeout(() => {
+      setExpandedComment(commentId)
+      
+      // Scroll to the comment position
+      if (comment && scrollerRef.current && contentHeight > 0) {
+        const viewerHeight = viewerRef.current?.getBoundingClientRect().height || 0
+        const targetY = (comment.y_percent / 100) * contentHeight
+        // Center the comment in the viewport
+        const targetScroll = Math.max(0, targetY - viewerHeight / 2)
+        scrollerRef.current.scrollTo({ top: targetScroll, behavior: 'smooth' })
+      }
+    }, 150)
+  }
+  
   const toggleFullscreen = () => setIsFullscreen(!isFullscreen)
 
   // Loading
@@ -325,44 +403,76 @@ export default function ViewerPage() {
 
       <main style={styles.mainViewer}>
         <section ref={viewerRef} style={{ ...styles.viewer, borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20,18,15,0.25)' }}>
-          <div style={styles.rendererWrapper}><ArtifactRenderer code={artifact.code} /></div>
-          
-          {mode === 'feedback' && (
-            <div style={styles.feedbackLayer} onClick={handleOverlayClick} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-              {visibleComments.map(c => {
-                const isExpanded = expandedComment === c.id
-                const isMine = c.user_id === user?.id
-                return (
-                  <div key={c.id} data-pin="true" style={{ ...styles.pinContainer, left: `${c.x_percent}%`, top: `${c.y_percent}%`, zIndex: isExpanded ? 100 : 10 }}>
-                    <div style={{ ...styles.pin, ...(isMine ? styles.pinMine : styles.pinOther), ...(isExpanded ? styles.pinExpanded : {}) }} onClick={(e) => handlePinClick(e, c)}>{getInitials(c.user_name)}</div>
-                    {isExpanded && (
-                      <div style={{ ...styles.commentCard, ...getCardPosition(c.x_percent, c.y_percent), width: 'min(260px, calc(100vw - 80px))' }}>
-                        <div style={styles.commentCardHeader}><div style={styles.commentCardName}>{c.user_name}</div><button style={styles.commentCardClose} onClick={(e) => { e.stopPropagation(); setExpandedComment(null) }}>×</button></div>
-                        <div style={styles.commentCardMessage}>{c.message}</div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-              {pendingPosition && (
-                <div data-input-card="true" style={{ ...styles.pinContainer, left: `${pendingPosition.x}%`, top: `${pendingPosition.y}%`, zIndex: 200 }}>
-                  <div style={{ ...styles.pin, ...styles.pinMine }}>{getInitials(userName)}</div>
-                  <div style={{ ...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y), width: 'min(260px, calc(100vw - 80px))' }}>
-                    <div style={styles.inputCardHeader}><span style={styles.inputCardName}>{userName}</span></div>
-                    <textarea ref={textareaRef} style={styles.inputTextarea} placeholder="Add your feedback..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleCommentKeyDown} rows={2} />
-                    <div style={styles.inputCardFooter}>
-                      <span style={styles.inputHint}>Enter ↵</span>
-                      <div style={styles.inputActions}>
-                        <button style={styles.cancelBtn} onClick={() => { setPendingPosition(null); setInputValue('') }}>Cancel</button>
-                        <button style={{ ...styles.sendBtn, opacity: !inputValue.trim() || submitting ? 0.5 : 1 }} onClick={handleSubmitComment} disabled={!inputValue.trim() || submitting}><SendIcon /></button>
-                      </div>
+          {/* Scrollable container */}
+          <div 
+            ref={scrollerRef} 
+            style={styles.scroller}
+            onScroll={handleScroll}
+          >
+            {/* Spacer to create scrollable area matching content height */}
+            <div style={{ height: contentHeight > 0 ? contentHeight : '100%', minHeight: '100%' }}>
+              {/* Sticky container keeps iframe visible while scrolling */}
+              <div style={styles.stickyContainer}>
+                {/* Renderer */}
+                <div style={styles.rendererWrapper}><ArtifactRenderer code={artifact.code} /></div>
+                
+                {/* Feedback layer with pins */}
+                {mode === 'feedback' && (
+                  <div 
+                    style={styles.feedbackLayer} 
+                    onClick={handleOverlayClick} 
+                    onMouseMove={handleMouseMove} 
+                    onMouseLeave={handleMouseLeave}
+                  >
+                    {/* Pins container - offset by scroll */}
+                    <div style={{ 
+                      position: 'absolute', 
+                      top: 0, 
+                      left: 0, 
+                      width: '100%', 
+                      height: contentHeight > 0 ? contentHeight : '100%',
+                      transform: `translateY(-${scrollTop}px)`,
+                      pointerEvents: 'none'
+                    }}>
+                      {visibleComments.map(c => {
+                        const isExpanded = expandedComment === c.id
+                        const isMine = c.user_id === user?.id
+                        return (
+                          <div key={c.id} data-pin="true" style={{ ...styles.pinContainer, left: `${c.x_percent}%`, top: `${c.y_percent}%`, zIndex: isExpanded ? 100 : 10, pointerEvents: 'auto' }}>
+                            <div style={{ ...styles.pin, ...(isMine ? styles.pinMine : styles.pinOther), ...(isExpanded ? styles.pinExpanded : {}) }} onClick={(e) => handlePinClick(e, c)}>{getInitials(c.user_name)}</div>
+                            {isExpanded && (
+                              <div style={{ ...styles.commentCard, ...getCardPosition(c.x_percent, c.y_percent), width: 'min(260px, calc(100vw - 80px))' }}>
+                                <div style={styles.commentCardHeader}><div style={styles.commentCardName}>{c.user_name}</div><button style={styles.commentCardClose} onClick={(e) => { e.stopPropagation(); setExpandedComment(null) }}>×</button></div>
+                                <div style={styles.commentCardMessage}>{c.message}</div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                      {pendingPosition && (
+                        <div data-input-card="true" style={{ ...styles.pinContainer, left: `${pendingPosition.x}%`, top: `${pendingPosition.y}%`, zIndex: 200, pointerEvents: 'auto' }}>
+                          <div style={{ ...styles.pin, ...styles.pinMine }}>{getInitials(userName)}</div>
+                          <div style={{ ...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y), width: 'min(260px, calc(100vw - 80px))' }}>
+                            <div style={styles.inputCardHeader}><span style={styles.inputCardName}>{userName}</span></div>
+                            <textarea ref={textareaRef} style={styles.inputTextarea} placeholder="Add your feedback..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleCommentKeyDown} rows={2} />
+                            <div style={styles.inputCardFooter}>
+                              <span style={styles.inputHint}>Enter ↵</span>
+                              <div style={styles.inputActions}>
+                                <button style={styles.cancelBtn} onClick={() => { setPendingPosition(null); setInputValue('') }}>Cancel</button>
+                                <button style={{ ...styles.sendBtn, opacity: !inputValue.trim() || submitting ? 0.5 : 1 }} onClick={handleSubmitComment} disabled={!inputValue.trim() || submitting}><SendIcon /></button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
+                    {/* Cursor indicator - fixed position in viewport */}
+                    {isOverViewer && !pendingPosition && !expandedComment && <div style={{ ...styles.cursor, left: cursorPos.x, top: cursorPos.y }}>+ Click to comment</div>}
                   </div>
-                </div>
-              )}
-              {isOverViewer && !pendingPosition && !expandedComment && <div style={{ ...styles.cursor, left: cursorPos.x, top: cursorPos.y }}>+ Click to comment</div>}
+                )}
+              </div>
             </div>
-          )}
+          </div>
         </section>
       </main>
     </div>
@@ -390,8 +500,10 @@ const styles: Record<string, React.CSSProperties> = {
   mainCenter: { maxWidth: '1100px', margin: '0 auto', padding: '16px 20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 96px)' },
   mainViewer: { maxWidth: '1100px', margin: '0 auto', padding: '16px 16px 24px' },
   viewer: { position: 'relative', backgroundColor: '#fff', borderRadius: '14px', overflow: 'hidden', height: 'calc(100vh - 110px)', border: '2px solid rgba(20,18,15,0.25)', transition: 'border-color 0.2s' },
+  scroller: { width: '100%', height: '100%', overflow: 'auto' },
+  stickyContainer: { position: 'sticky', top: 0, width: '100%', height: 'calc(100vh - 114px)' },
   rendererWrapper: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  feedbackLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, cursor: 'crosshair', zIndex: 10 },
+  feedbackLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, cursor: 'crosshair', zIndex: 10, overflow: 'hidden' },
   pinContainer: { position: 'absolute', transform: 'translate(-50%, -50%)' },
   pin: { width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, cursor: 'pointer', border: '2px solid #fff' },
   pinMine: { backgroundColor: '#6b7cff', color: '#fff', boxShadow: '0 2px 8px rgba(107,124,255,0.4)' },
