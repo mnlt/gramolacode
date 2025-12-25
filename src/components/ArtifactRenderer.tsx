@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef, useCallback } from 'react'
+import React, { useMemo, useEffect, useRef, useCallback, useState } from 'react'
 import {
   SandpackProvider,
   SandpackPreview,
@@ -9,9 +9,168 @@ interface ArtifactRendererProps {
   onHeightChange?: (height: number) => void
 }
 
-export default function ArtifactRenderer({ code, onHeightChange }: ArtifactRendererProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
+// ============================================================================
+// TIPO DE CÓDIGO
+// ============================================================================
+
+type CodeType = 'html' | 'react' | 'markdown'
+
+function detectCodeType(code: string): CodeType {
+  const trimmed = code.trim()
   
+  // HTML completo (DOCTYPE o <html>)
+  if (/^<!doctype\s+html/i.test(trimmed) || /^<html/i.test(trimmed)) {
+    return 'html'
+  }
+  
+  // HTML parcial (tags minúsculas, sin imports/exports de JS)
+  if (/^<[a-z]/i.test(trimmed) && !/<[A-Z]/.test(trimmed) && !/import\s/.test(trimmed) && !/export\s/.test(trimmed)) {
+    return 'html'
+  }
+  
+  // Markdown
+  const firstLine = trimmed.split('\n')[0]
+  if (/^#{1,6}\s/.test(trimmed) || /^\s*[-*+]\s[^\s]/.test(trimmed) || /^```/m.test(trimmed) || /^---\s*$/.test(firstLine)) {
+    return 'markdown'
+  }
+  
+  // Todo lo demás es React/JSX
+  return 'react'
+}
+
+// ============================================================================
+// COMPONENTE PRINCIPAL
+// ============================================================================
+
+export default function ArtifactRenderer({ code, onHeightChange }: ArtifactRendererProps) {
+  const codeType = useMemo(() => detectCodeType(code.trim()), [code])
+  
+  if (codeType === 'html' || codeType === 'markdown') {
+    return <HtmlRenderer code={code} onHeightChange={onHeightChange} codeType={codeType} />
+  }
+  
+  return <ReactRenderer code={code} onHeightChange={onHeightChange} />
+}
+
+// ============================================================================
+// HTML/MARKDOWN RENDERER (iframe directo - control total)
+// ============================================================================
+
+function HtmlRenderer({ code, codeType, onHeightChange }: { 
+  code: string
+  codeType: 'html' | 'markdown'
+  onHeightChange?: (height: number) => void 
+}) {
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  
+  const htmlContent = useMemo(() => {
+    const trimmed = code.trim()
+    
+    if (codeType === 'markdown') {
+      return generateMarkdownHtml(trimmed)
+    }
+    
+    // HTML completo
+    if (/^<!doctype\s+html/i.test(trimmed) || /^<html/i.test(trimmed)) {
+      return injectHeightReporter(trimmed)
+    }
+    
+    // HTML parcial
+    return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>html,body{margin:0;padding:0;overflow:hidden !important}body{font-family:system-ui,-apple-system,sans-serif}</style>
+</head><body>${trimmed}</body></html>`
+  }, [code, codeType])
+
+  const measureAndExpand = useCallback(() => {
+    const iframe = iframeRef.current
+    if (!iframe) return
+
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document
+      if (!doc?.body) return
+
+      // Forzar reflow
+      doc.body.style.overflow = 'hidden'
+      doc.documentElement.style.overflow = 'hidden'
+
+      const height = Math.max(
+        doc.body.scrollHeight,
+        doc.body.offsetHeight,
+        doc.documentElement?.scrollHeight || 0,
+        doc.documentElement?.offsetHeight || 0,
+        400
+      )
+
+      iframe.style.height = `${height}px`
+      onHeightChange?.(height)
+    } catch (e) {
+      console.error('Error measuring iframe:', e)
+      onHeightChange?.(600)
+    }
+  }, [onHeightChange])
+
+  // Medir cuando carga y periódicamente (para imágenes, etc)
+  useEffect(() => {
+    const iframe = iframeRef.current
+    if (!iframe) return
+
+    const handleLoad = () => {
+      measureAndExpand()
+      // Re-medir varias veces para contenido dinámico
+      setTimeout(measureAndExpand, 100)
+      setTimeout(measureAndExpand, 300)
+      setTimeout(measureAndExpand, 600)
+      setTimeout(measureAndExpand, 1200)
+      setTimeout(measureAndExpand, 2500)
+    }
+
+    iframe.addEventListener('load', handleLoad)
+    return () => iframe.removeEventListener('load', handleLoad)
+  }, [measureAndExpand])
+
+  // Escuchar mensajes del iframe
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'height-report' && typeof e.data.height === 'number') {
+        const iframe = iframeRef.current
+        if (iframe) {
+          iframe.style.height = `${e.data.height}px`
+          onHeightChange?.(e.data.height)
+        }
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [onHeightChange])
+
+  return (
+    <iframe
+      ref={iframeRef}
+      srcDoc={htmlContent}
+      style={{
+        width: '100%',
+        minHeight: '400px',
+        border: 'none',
+        display: 'block',
+      }}
+      sandbox="allow-scripts allow-same-origin"
+      title="HTML Preview"
+    />
+  )
+}
+
+// ============================================================================
+// REACT RENDERER (Sandpack)
+// ============================================================================
+
+function ReactRenderer({ code, onHeightChange }: { 
+  code: string
+  onHeightChange?: (height: number) => void 
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [isReady, setIsReady] = useState(false)
+
   const sandpackConfig = useMemo(() => {
     const trimmedCode = code.trim()
     if (!trimmedCode) return null
@@ -24,205 +183,168 @@ export default function ArtifactRenderer({ code, onHeightChange }: ArtifactRende
     return { files, dependencies }
   }, [code])
 
-  const measureAndExpand = useCallback(() => {
+  // Intentar expandir Sandpack después de que cargue
+  const attemptExpansion = useCallback(() => {
     if (!containerRef.current) return
-    
+
     const iframe = containerRef.current.querySelector('iframe') as HTMLIFrameElement
     if (!iframe) return
-    
-    let height = 400
-    
+
+    let height = 600 // altura por defecto para React
+
     try {
       const doc = iframe.contentDocument || iframe.contentWindow?.document
       if (doc?.body) {
-        // Calcular altura real del contenido
         height = Math.max(
           doc.body.scrollHeight,
           doc.body.offsetHeight,
           doc.documentElement?.scrollHeight || 0,
           doc.documentElement?.offsetHeight || 0,
-          400
+          600
         )
-        
-        // Deshabilitar scroll interno del iframe
-        doc.body.style.overflow = 'hidden'
-        doc.documentElement.style.overflow = 'hidden'
       }
     } catch {
-      // CORS - continuar con altura por defecto
+      // CORS - usar altura por defecto
     }
-    
-    // Aplicar altura al iframe con !important para sobrescribir estilos inline
+
+    // Aplicar altura al iframe y contenedores
     iframe.style.setProperty('height', `${height}px`, 'important')
-    iframe.style.setProperty('max-height', 'none', 'important')
     iframe.style.setProperty('min-height', `${height}px`, 'important')
-    
-    // Recorrer TODOS los ancestros hasta nuestro contenedor y expandirlos
-    let element = iframe.parentElement
-    while (element && element !== containerRef.current && element !== document.body) {
-      element.style.setProperty('height', `${height}px`, 'important')
-      element.style.setProperty('max-height', 'none', 'important')
-      element.style.setProperty('min-height', `${height}px`, 'important')
-      element.style.setProperty('overflow', 'visible', 'important')
-      element = element.parentElement
+
+    // Intentar expandir contenedores padre de Sandpack
+    let el = iframe.parentElement
+    while (el && el !== containerRef.current) {
+      el.style.setProperty('height', 'auto', 'important')
+      el.style.setProperty('min-height', `${height}px`, 'important')
+      el.style.setProperty('max-height', 'none', 'important')
+      el = el.parentElement
     }
-    
-    // Expandir nuestro contenedor también
-    if (containerRef.current) {
-      containerRef.current.style.setProperty('height', `${height}px`, 'important')
-      containerRef.current.style.setProperty('min-height', `${height}px`, 'important')
-    }
-    
-    // Notificar al padre
-    if (onHeightChange) {
-      onHeightChange(height)
-    }
+
+    onHeightChange?.(height)
+    setIsReady(true)
   }, [onHeightChange])
 
+  // Intentar expandir periódicamente
   useEffect(() => {
-    if (!sandpackConfig) return
-    
-    // Intentar medir periódicamente hasta que el contenido esté listo
-    let attempts = 0
-    const maxAttempts = 60
-    
-    const intervalId = setInterval(() => {
-      measureAndExpand()
-      attempts++
-      if (attempts >= maxAttempts) {
-        clearInterval(intervalId)
-      }
-    }, 500)
-    
-    return () => clearInterval(intervalId)
-  }, [sandpackConfig, measureAndExpand])
+    const timers = [
+      setTimeout(attemptExpansion, 500),
+      setTimeout(attemptExpansion, 1000),
+      setTimeout(attemptExpansion, 2000),
+      setTimeout(attemptExpansion, 4000),
+    ]
+    return () => timers.forEach(clearTimeout)
+  }, [attemptExpansion])
 
   if (!sandpackConfig) {
     return <div style={styles.error}>No code provided</div>
   }
 
   return (
-    <div ref={containerRef}>
+    <div 
+      ref={containerRef} 
+      style={{ 
+        width: '100%',
+        minHeight: '600px',
+      }}
+    >
       <SandpackProvider
         template="react-ts"
         files={sandpackConfig.files}
         customSetup={{ dependencies: sandpackConfig.dependencies }}
-        options={{ externalResources: ['https://cdn.tailwindcss.com'] }}
+        options={{ 
+          externalResources: ['https://cdn.tailwindcss.com'],
+        }}
       >
         <SandpackPreview
           showNavigator={false}
           showRefreshButton={false}
           showOpenInCodeSandbox={false}
+          style={{ 
+            height: '100%', 
+            minHeight: '600px',
+          }}
         />
       </SandpackProvider>
     </div>
   )
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  error: { 
-    padding: '20px', 
-    color: '#dc2626', 
-    textAlign: 'center' 
-  },
+// ============================================================================
+// HELPERS HTML
+// ============================================================================
+
+function injectHeightReporter(html: string): string {
+  const script = `
+<style>html,body{overflow:hidden !important}</style>
+<script>
+function reportHeight() {
+  const h = Math.max(document.body.scrollHeight, document.body.offsetHeight, 
+    document.documentElement.scrollHeight, document.documentElement.offsetHeight);
+  window.parent.postMessage({ type: 'height-report', height: h }, '*');
+}
+window.addEventListener('load', function() {
+  reportHeight();
+  setTimeout(reportHeight, 500);
+  setTimeout(reportHeight, 1500);
+  // Observer para cambios
+  new MutationObserver(reportHeight).observe(document.body, {childList:true, subtree:true});
+  // Para imágenes
+  document.querySelectorAll('img').forEach(function(img) {
+    img.addEventListener('load', reportHeight);
+  });
+});
+</script>`
+
+  if (html.includes('</head>')) {
+    return html.replace('</head>', script + '</head>')
+  } else if (html.includes('<body')) {
+    return html.replace(/<body([^>]*)>/, '<body$1>' + script)
+  }
+  return script + html
+}
+
+function generateMarkdownHtml(markdown: string): string {
+  let html = markdown
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+    .replace(/^\s*[-*+]\s+(.*)$/gim, '<li>$1</li>')
+    .replace(/\n/gim, '<br>')
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{overflow:hidden !important;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;padding:24px;line-height:1.6;color:#1a1a1a;max-width:800px}
+h1,h2,h3{margin:1em 0 0.5em;line-height:1.3}
+li{margin:0.25em 0}
+</style>
+</head><body>${html}</body></html>`
 }
 
 // ============================================================================
-// TEMPLATE LITERAL FIXES
+// HELPERS REACT/SANDPACK
 // ============================================================================
 
 function fixBrokenTemplateLiterals(code: string): string {
-  const allInterpolations = (code.match(/\$\{/g) || []).length
-  const validMatches = code.match(/`[^`]*\$\{[^`]*`/g) || []
-  let validInterpolations = 0
-  validMatches.forEach(m => {
-    validInterpolations += (m.match(/\$\{/g) || []).length
-  })
-  
-  if (allInterpolations === validInterpolations) return code
-  
   let fixed = code
   fixed = fixed.replace(/return\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (_m, c) => 'return `' + c + '`')
   fixed = fixed.replace(/=\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (_m, c) => '= `' + c + '`')
-  fixed = fixClassNameAttributes(fixed)
   return fixed
 }
-
-function fixClassNameAttributes(code: string): string {
-  let result = ''
-  let i = 0
-  const pattern = 'className={'
-  
-  while (i < code.length) {
-    const idx = code.indexOf(pattern, i)
-    if (idx === -1) { result += code.slice(i); break }
-    
-    result += code.slice(i, idx + pattern.length)
-    i = idx + pattern.length
-    
-    const closeIdx = findMatchingBrace(code, idx + pattern.length - 1)
-    if (closeIdx === -1) { result += code.slice(i); break }
-    
-    const content = code.slice(i, closeIdx)
-    const trimmed = content.trim()
-    
-    if (trimmed.startsWith('`') && trimmed.endsWith('`')) { result += content; i = closeIdx; continue }
-    if (/^\s*\w+\s*\(/.test(trimmed) && trimmed.endsWith(')')) { result += content; i = closeIdx; continue }
-    if (!trimmed.includes('${') && /^[a-zA-Z_]\w*$/.test(trimmed)) { result += content; i = closeIdx; continue }
-    if (!trimmed.includes('${') && trimmed.includes('?')) { result += content; i = closeIdx; continue }
-    
-    if (trimmed.includes('${') && !trimmed.startsWith('`')) {
-      result += '`' + trimmed + '`'
-    } else {
-      result += content
-    }
-    i = closeIdx
-  }
-  return result
-}
-
-function findMatchingBrace(code: string, startIdx: number): number {
-  let depth = 0, inString = false, stringChar = ''
-  for (let i = startIdx; i < code.length; i++) {
-    const ch = code[i], prev = i > 0 ? code[i - 1] : ''
-    if ((ch === '"' || ch === "'" || ch === '`') && prev !== '\\') {
-      if (!inString) { inString = true; stringChar = ch }
-      else if (ch === stringChar) { inString = false; stringChar = '' }
-      continue
-    }
-    if (inString) continue
-    if (ch === '{') depth++
-    else if (ch === '}') { depth--; if (depth === 0) return i }
-  }
-  return -1
-}
-
-// ============================================================================
-// CODE ANALYSIS
-// ============================================================================
 
 interface CodeAnalysis {
   imports: { full: string; source: string; isShadcn: boolean }[]
   shadcnComponents: string[]
   npmPackages: Set<string>
-  isMarkdown: boolean
-  isPlainHTML: boolean
-  isFullDocument: boolean
 }
 
 function analyzeCode(code: string): CodeAnalysis {
   const imports: CodeAnalysis['imports'] = []
   const shadcnComponents: string[] = []
   const npmPackages = new Set<string>()
-
-  const firstLine = code.split('\n')[0]
-  const isMarkdown = /^#{1,6}\s/.test(code) || /^\s*[-*+]\s[^\s]/.test(code) || /^\s*\d+\.\s/.test(code) || /^```/m.test(code) || /\[.+\]\(.+\)/.test(code) || /^>\s/.test(code) || /^---\s*$/.test(firstLine)
-  const isPlainHTML = !isMarkdown && (/^<!doctype\s+html/i.test(code) || (/^<[a-z]/i.test(code) && !/<[A-Z]/.test(code) && !/import\s/.test(code)))
-  const isFullDocument = /^<!doctype\s+html/i.test(code) || /^<html/i.test(code)
-
-  if (isMarkdown || isPlainHTML) {
-    return { imports, shadcnComponents, npmPackages, isMarkdown, isPlainHTML, isFullDocument }
-  }
 
   const importRegex = /import\s+(?:(\w+)(?:\s*,\s*)?)?(?:\{([^}]+)\})?\s+from\s+['"]([^'"]+)['"]/g
   let match
@@ -237,37 +359,23 @@ function analyzeCode(code: string): CodeAnalysis {
     }
   }
 
-  if (/\buseState\b|\buseEffect\b|\buseRef\b|\buseMemo\b/.test(code)) npmPackages.add('react')
+  if (/\buse[A-Z]\w*\b/.test(code)) npmPackages.add('react')
 
-  return { imports, shadcnComponents, npmPackages, isMarkdown: false, isPlainHTML, isFullDocument }
+  return { imports, shadcnComponents, npmPackages }
 }
-
-// ============================================================================
-// FILE BUILDING
-// ============================================================================
 
 function buildFiles(code: string, analysis: CodeAnalysis): Record<string, string> {
   const files: Record<string, string> = {}
-
-  if (analysis.isMarkdown) {
-    files['/App.tsx'] = `import { marked } from 'marked';\nconst markdown = ${JSON.stringify(code)};\nexport default function App() {\n  return <article className="prose prose-neutral max-w-none p-8" dangerouslySetInnerHTML={{ __html: marked.parse(markdown) }} />;\n}`
-    return files
-  }
-
-  if (analysis.isPlainHTML) {
-    const escaped = code.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$')
-    files['/App.tsx'] = analysis.isFullDocument
-      ? `export default function App() { return <iframe srcDoc={\`${escaped}\`} style={{ width: '100%', height: '100vh', border: 'none' }} />; }`
-      : `export default function App() { return <div dangerouslySetInnerHTML={{ __html: \`${escaped}\` }} />; }`
-    return files
-  }
-
   let processedCode = code
 
+  // Procesar shadcn imports
   if (analysis.shadcnComponents.length > 0) {
     analysis.imports.forEach(imp => {
       if (imp.isShadcn) {
-        processedCode = processedCode.replace(imp.full, imp.full.replace(imp.source, imp.source.replace('@/components/ui/', './components/ui/')))
+        processedCode = processedCode.replace(
+          imp.full, 
+          imp.full.replace(imp.source, imp.source.replace('@/components/ui/', './components/ui/'))
+        )
       }
     })
     analysis.shadcnComponents.forEach(comp => {
@@ -276,6 +384,7 @@ function buildFiles(code: string, analysis: CodeAnalysis): Record<string, string
     })
   }
 
+  // Agregar cn helper si se usa
   if (/\bcn\(/.test(code) || analysis.shadcnComponents.length > 0) {
     files['/lib/utils.js'] = `export function cn(...classes) { return classes.filter(Boolean).join(' '); }`
     if (!/import.*cn.*from/.test(processedCode) && /\bcn\(/.test(processedCode) && !/function\s+cn\s*\(/.test(processedCode)) {
@@ -283,6 +392,16 @@ function buildFiles(code: string, analysis: CodeAnalysis): Record<string, string
     }
   }
 
+  // Agregar helpers comunes si se usan
+  if (/\bclamp\(/.test(code) && !/function\s+clamp\s*\(/.test(code)) {
+    processedCode = `function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }\n` + processedCode
+  }
+  
+  if (/\bmulberry32\(/.test(code) && !/function\s+mulberry32\s*\(/.test(code)) {
+    processedCode = `function mulberry32(seed) { let t = seed >>> 0; return function() { t += 0x6d2b79f5; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; }; }\n` + processedCode
+  }
+
+  // Asegurar export default
   if (!/export\s+default/.test(processedCode)) {
     const m = processedCode.match(/(?:function|const)\s+([A-Z]\w*)\s*(?:=|\()/)
     if (m) processedCode += `\n\nexport default ${m[1]};`
@@ -294,8 +413,11 @@ function buildFiles(code: string, analysis: CodeAnalysis): Record<string, string
 
 function buildDependencies(analysis: CodeAnalysis): Record<string, string> {
   const deps: Record<string, string> = {}
-  if (analysis.isMarkdown) deps['marked'] = 'latest'
-  analysis.npmPackages.forEach(pkg => { if (pkg !== 'react' && pkg !== 'react-dom') deps[pkg] = 'latest' })
+  analysis.npmPackages.forEach(pkg => {
+    if (pkg !== 'react' && pkg !== 'react-dom') {
+      deps[pkg] = 'latest'
+    }
+  })
   return deps
 }
 
@@ -307,4 +429,12 @@ function getShadcnComponent(name: string): string | null {
     'badge': `import React from 'react';\nimport { cn } from '../../lib/utils';\nconst variants = { default: "bg-neutral-900 text-neutral-50", secondary: "bg-neutral-100 text-neutral-900", destructive: "bg-red-500 text-neutral-50", outline: "text-neutral-950 border border-neutral-200" };\nexport const Badge = ({ className, variant = "default", ...props }) => (<div className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors", variants[variant], className)} {...props} />);`,
   }
   return components[name] || null
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  error: {
+    padding: '24px',
+    color: '#dc2626',
+    textAlign: 'center',
+  },
 }
