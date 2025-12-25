@@ -17,7 +17,7 @@ const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').to
 const formatTime = (ts: string) => { const d = Date.now() - new Date(ts).getTime(); if (d < 60000) return 'just now'; if (d < 3600000) return `${Math.floor(d / 60000)}m ago`; if (d < 86400000) return `${Math.floor(d / 3600000)}h ago`; return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }
 
 // Hook to get iframe content height and sync scroll
-function useIframeSync(viewerRef: React.RefObject<HTMLDivElement>, mode: Mode) {
+function useIframeSync(viewerRef: React.RefObject<HTMLDivElement | null>) {
   const [contentHeight, setContentHeight] = useState<number>(0)
   const [scrollTop, setScrollTop] = useState(0)
   const scrollerRef = useRef<HTMLDivElement>(null)
@@ -115,7 +115,7 @@ export default function ViewerPage() {
   const viewerRef = useRef<HTMLDivElement>(null)
   
   // Iframe sync for scroll
-  const { contentHeight, scrollTop, scrollerRef, handleScroll } = useIframeSync(viewerRef, mode)
+  const { contentHeight, scrollTop, scrollerRef, handleScroll } = useIframeSync(viewerRef)
 
   const isOwner = artifact && user && artifact.user_id === user.id
   const visibleComments = isOwner ? comments : comments.filter(c => c.user_id === user?.id)
