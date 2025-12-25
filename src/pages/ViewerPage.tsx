@@ -16,56 +16,67 @@ const getStoredName = () => { const s = localStorage.getItem(NAME_KEY)?.trim(); 
 const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase()
 const formatTime = (ts: string) => { const d = Date.now() - new Date(ts).getTime(); if (d < 60000) return 'just now'; if (d < 3600000) return `${Math.floor(d / 60000)}m ago`; if (d < 86400000) return `${Math.floor(d / 3600000)}h ago`; return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }
 
-// Hook to get iframe content height and sync scroll
-function useIframeSync(viewerRef: React.RefObject<HTMLDivElement | null>) {
-  const [contentHeight, setContentHeight] = useState<number>(0)
-  const [scrollTop, setScrollTop] = useState(0)
-  const scrollerRef = useRef<HTMLDivElement>(null)
+// Hook to make iframe height match its content (no internal scroll)
+function useIframeContentHeight(viewerRef: React.RefObject<HTMLDivElement | null>) {
+  const [iframeHeight, setIframeHeight] = useState<number | null>(null)
   
-  // Get iframe and measure content height
   useEffect(() => {
-    const checkHeight = () => {
+    let attempts = 0
+    const maxAttempts = 50 // 25 seconds max
+    
+    const measureContent = () => {
       const iframe = viewerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
-      if (!iframe) return
+      if (!iframe) {
+        if (attempts < maxAttempts) {
+          attempts++
+          setTimeout(measureContent, 500)
+        }
+        return
+      }
       
       try {
         const doc = iframe.contentDocument || iframe.contentWindow?.document
         if (doc?.body) {
-          const height = Math.max(doc.body.scrollHeight, doc.documentElement?.scrollHeight || 0)
-          if (height > 0 && height !== contentHeight) {
-            setContentHeight(height)
+          // Get the full content height
+          const height = Math.max(
+            doc.body.scrollHeight,
+            doc.body.offsetHeight,
+            doc.documentElement?.scrollHeight || 0,
+            doc.documentElement?.offsetHeight || 0
+          )
+          
+          if (height > 100) { // Valid height
+            setIframeHeight(height)
+            // Also disable iframe's internal scroll
+            doc.body.style.overflow = 'hidden'
+            doc.documentElement.style.overflow = 'hidden'
+          } else if (attempts < maxAttempts) {
+            attempts++
+            setTimeout(measureContent, 500)
           }
+        } else if (attempts < maxAttempts) {
+          attempts++
+          setTimeout(measureContent, 500)
         }
-      } catch (e) {
-        // Cross-origin, fallback to viewport height
-        const rect = viewerRef.current?.getBoundingClientRect()
-        if (rect) setContentHeight(rect.height)
+      } catch {
+        // Cross-origin - can't measure, use fallback
+        setIframeHeight(null)
       }
     }
     
-    // Check periodically until we get a valid height
-    const interval = setInterval(checkHeight, 500)
-    checkHeight()
+    measureContent()
     
-    return () => clearInterval(interval)
-  }, [viewerRef, contentHeight])
-  
-  // Handle scroll sync
-  const handleScroll = useCallback(() => {
-    const scroller = scrollerRef.current
-    if (!scroller) return
-    
-    const newScrollTop = scroller.scrollTop
-    setScrollTop(newScrollTop)
-    
-    // Sync iframe scroll
-    const iframe = viewerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
-    if (iframe?.contentWindow) {
-      iframe.contentWindow.scrollTo(0, newScrollTop)
+    // Re-measure on window resize
+    const handleResize = () => {
+      attempts = 0
+      setTimeout(measureContent, 100)
     }
+    window.addEventListener('resize', handleResize)
+    
+    return () => window.removeEventListener('resize', handleResize)
   }, [viewerRef])
   
-  return { contentHeight, scrollTop, scrollerRef, handleScroll }
+  return iframeHeight
 }
 
 // Icons
@@ -114,8 +125,8 @@ export default function ViewerPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const viewerRef = useRef<HTMLDivElement>(null)
   
-  // Iframe sync for scroll
-  const { contentHeight, scrollTop, scrollerRef, handleScroll } = useIframeSync(viewerRef)
+  // Get iframe content height to expand viewer
+  const iframeHeight = useIframeContentHeight(viewerRef)
 
   const isOwner = artifact && user && artifact.user_id === user.id
   const visibleComments = isOwner ? comments : comments.filter(c => c.user_id === user?.id)
@@ -183,13 +194,9 @@ export default function ViewerPage() {
     const rect = viewerRef.current?.getBoundingClientRect()
     if (!rect) return
     
-    // X is simple percentage of width
+    // Simple percentage calculation - viewer height = content height
     const x = ((e.clientX - rect.left) / rect.width) * 100
-    
-    // Y needs to account for scroll - position relative to total content height
-    const clickYInViewport = e.clientY - rect.top
-    const actualHeight = contentHeight || rect.height
-    const y = ((clickYInViewport + scrollTop) / actualHeight) * 100
+    const y = ((e.clientY - rect.top) / rect.height) * 100
     
     setExpandedComment(null)
     setPendingPosition({ x, y })
@@ -252,13 +259,16 @@ export default function ViewerPage() {
     setTimeout(() => {
       setExpandedComment(commentId)
       
-      // Scroll to the comment position
-      if (comment && scrollerRef.current && contentHeight > 0) {
-        const viewerHeight = viewerRef.current?.getBoundingClientRect().height || 0
-        const targetY = (comment.y_percent / 100) * contentHeight
-        // Center the comment in the viewport
-        const targetScroll = Math.max(0, targetY - viewerHeight / 2)
-        scrollerRef.current.scrollTo({ top: targetScroll, behavior: 'smooth' })
+      // Scroll browser to the comment position
+      if (comment && viewerRef.current) {
+        const viewerRect = viewerRef.current.getBoundingClientRect()
+        const viewerTop = viewerRef.current.offsetTop
+        const commentY = (comment.y_percent / 100) * viewerRect.height
+        // Scroll to center the comment
+        window.scrollTo({ 
+          top: viewerTop + commentY - window.innerHeight / 2, 
+          behavior: 'smooth' 
+        })
       }
     }, 150)
   }
@@ -402,72 +412,72 @@ export default function ViewerPage() {
       </header>
 
       <main style={styles.mainViewer}>
-        <section ref={viewerRef} style={{ ...styles.viewer, borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20,18,15,0.25)' }}>
-          {/* Scrollable container */}
-          <div 
-            ref={scrollerRef} 
-            style={styles.scroller}
-            onScroll={handleScroll}
-          >
-            {/* Spacer to create scrollable area matching content height */}
-            <div style={{ height: contentHeight > 0 ? contentHeight : '100%', minHeight: '100%' }}>
-              {/* Sticky container keeps iframe visible while scrolling */}
-              <div style={styles.stickyContainer}>
-                {/* Renderer */}
-                <div style={styles.rendererWrapper}><ArtifactRenderer code={artifact.code} /></div>
-                
-                {/* Feedback layer with pins */}
-                {mode === 'feedback' && (
-                  <div 
-                    style={styles.feedbackLayer} 
-                    onClick={handleOverlayClick} 
-                    onMouseMove={handleMouseMove} 
-                    onMouseLeave={handleMouseLeave}
-                  >
-                    {/* Pins container - offset by scroll */}
-                    <div style={{ 
-                      position: 'absolute', 
-                      top: 0, 
-                      left: 0, 
-                      width: '100%', 
-                      height: contentHeight > 0 ? contentHeight : '100%',
-                      transform: `translateY(-${scrollTop}px)`,
-                      pointerEvents: 'none'
-                    }}>
-                      {visibleComments.map(c => {
-                        const isExpanded = expandedComment === c.id
-                        const isMine = c.user_id === user?.id
-                        return (
-                          <div key={c.id} data-pin="true" style={{ ...styles.pinContainer, left: `${c.x_percent}%`, top: `${c.y_percent}%`, zIndex: isExpanded ? 100 : 10, pointerEvents: 'auto' }}>
-                            <div style={{ ...styles.pin, ...(isMine ? styles.pinMine : styles.pinOther), ...(isExpanded ? styles.pinExpanded : {}) }} onClick={(e) => handlePinClick(e, c)}>{getInitials(c.user_name)}</div>
-                            {isExpanded && (
-                              <div style={{ ...styles.commentCard, ...getCardPosition(c.x_percent, c.y_percent), width: 'min(260px, calc(100vw - 80px))' }}>
-                                <div style={styles.commentCardHeader}><div style={styles.commentCardName}>{c.user_name}</div><button style={styles.commentCardClose} onClick={(e) => { e.stopPropagation(); setExpandedComment(null) }}>×</button></div>
-                                <div style={styles.commentCardMessage}>{c.message}</div>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                      {pendingPosition && (
-                        <div data-input-card="true" style={{ ...styles.pinContainer, left: `${pendingPosition.x}%`, top: `${pendingPosition.y}%`, zIndex: 200, pointerEvents: 'auto' }}>
-                          <div style={{ ...styles.pin, ...styles.pinMine }}>{getInitials(userName)}</div>
-                          <div style={{ ...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y), width: 'min(260px, calc(100vw - 80px))' }}>
-                            <div style={styles.inputCardHeader}><span style={styles.inputCardName}>{userName}</span></div>
-                            <textarea ref={textareaRef} style={styles.inputTextarea} placeholder="Add your feedback..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleCommentKeyDown} rows={2} />
-                            <div style={styles.inputCardFooter}>
-                              <span style={styles.inputHint}>Enter ↵</span>
-                              <div style={styles.inputActions}>
-                                <button style={styles.cancelBtn} onClick={() => { setPendingPosition(null); setInputValue('') }}>Cancel</button>
-                                <button style={{ ...styles.sendBtn, opacity: !inputValue.trim() || submitting ? 0.5 : 1 }} onClick={handleSubmitComment} disabled={!inputValue.trim() || submitting}><SendIcon /></button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+        <section 
+          ref={viewerRef} 
+          style={{ 
+            ...styles.viewer, 
+            borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20,18,15,0.25)',
+            // Height expands to content - no fixed height!
+            height: iframeHeight ? iframeHeight : 'auto',
+            minHeight: '400px',
+          }}
+        >
+          {/* Renderer fills the viewer */}
+          <div style={styles.rendererWrapper}>
+            <ArtifactRenderer code={artifact.code} />
+          </div>
+          
+          {/* Feedback overlay - same size as viewer/content */}
+          {mode === 'feedback' && (
+            <div 
+              style={styles.feedbackOverlay} 
+              onClick={handleOverlayClick} 
+              onMouseMove={handleMouseMove} 
+              onMouseLeave={handleMouseLeave}
+            >
+              {/* Pins */}
+              {visibleComments.map(c => {
+                const isExpanded = expandedComment === c.id
+                const isMine = c.user_id === user?.id
+                return (
+                  <div key={c.id} data-pin="true" style={{ ...styles.pinContainer, left: `${c.x_percent}%`, top: `${c.y_percent}%`, zIndex: isExpanded ? 100 : 10 }}>
+                    <div style={{ ...styles.pin, ...(isMine ? styles.pinMine : styles.pinOther), ...(isExpanded ? styles.pinExpanded : {}) }} onClick={(e) => handlePinClick(e, c)}>{getInitials(c.user_name)}</div>
+                    {isExpanded && (
+                      <div style={{ ...styles.commentCard, ...getCardPosition(c.x_percent, c.y_percent), width: 'min(260px, calc(100vw - 80px))' }}>
+                        <div style={styles.commentCardHeader}><div style={styles.commentCardName}>{c.user_name}</div><button style={styles.commentCardClose} onClick={(e) => { e.stopPropagation(); setExpandedComment(null) }}>×</button></div>
+                        <div style={styles.commentCardMessage}>{c.message}</div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              
+              {/* Pending comment input */}
+              {pendingPosition && (
+                <div data-input-card="true" style={{ ...styles.pinContainer, left: `${pendingPosition.x}%`, top: `${pendingPosition.y}%`, zIndex: 200 }}>
+                  <div style={{ ...styles.pin, ...styles.pinMine }}>{getInitials(userName)}</div>
+                  <div style={{ ...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y), width: 'min(260px, calc(100vw - 80px))' }}>
+                    <div style={styles.inputCardHeader}><span style={styles.inputCardName}>{userName}</span></div>
+                    <textarea ref={textareaRef} style={styles.inputTextarea} placeholder="Add your feedback..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleCommentKeyDown} rows={2} />
+                    <div style={styles.inputCardFooter}>
+                      <span style={styles.inputHint}>Enter ↵</span>
+                      <div style={styles.inputActions}>
+                        <button style={styles.cancelBtn} onClick={() => { setPendingPosition(null); setInputValue('') }}>Cancel</button>
+                        <button style={{ ...styles.sendBtn, opacity: !inputValue.trim() || submitting ? 0.5 : 1 }} onClick={handleSubmitComment} disabled={!inputValue.trim() || submitting}><SendIcon /></button>
+                      </div>
                     </div>
-                    {/* Cursor indicator - fixed position in viewport */}
-                    {isOverViewer && !pendingPosition && !expandedComment && <div style={{ ...styles.cursor, left: cursorPos.x, top: cursorPos.y }}>+ Click to comment</div>}
+                  </div>
+                </div>
+              )}
+              
+              {/* Cursor indicator */}
+              {isOverViewer && !pendingPosition && !expandedComment && (
+                <div style={{ ...styles.cursorIndicator, left: cursorPos.x, top: cursorPos.y }}>+ Click to comment</div>
+              )}
+            </div>
+          )}
+        </section>
+      </main>
                   </div>
                 )}
               </div>
