@@ -169,7 +169,6 @@ function ReactRenderer({ code, onHeightChange }: {
   onHeightChange?: (height: number) => void 
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [isReady, setIsReady] = useState(false)
 
   const sandpackConfig = useMemo(() => {
     const trimmedCode = code.trim()
