@@ -92,8 +92,7 @@ export default function HomePage() {
         <section style={styles.hero}>
           <h1 style={styles.title}>Share. Learn. Iterate.</h1>
           <p style={styles.subtitle}>
-          Turn any code artifact into a link. Share it and get feedback from others. No signup required.
-          </p>
+          Turn any code artifact into a link. Share it and get feedback from others. No signup required.</p>
         </section>
 
         {/* Composer */}

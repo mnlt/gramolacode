@@ -155,6 +155,9 @@ export default function ViewerPage() {
   const [fullscreenHover, setFullscreenHover] = useState(false)
   const [exitHover, setExitHover] = useState(false)
 
+  // Responsive state
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
+
   const inputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const viewerRef = useRef<HTMLDivElement>(null)
@@ -218,6 +221,15 @@ export default function ViewerPage() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isFullscreen, expandedComment, pendingPosition])
+
+  // Handle window resize for responsive design
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 640)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   const saveName = useCallback((value: string) => {
     const trimmed = value.trim().slice(0, 24)
@@ -300,6 +312,38 @@ export default function ViewerPage() {
     }
   }
 
+  // Calculate smart position for cards (avoid edges)
+  const getCardPosition = (xPercent: number, yPercent: number): React.CSSProperties => {
+    const isNearRight = xPercent > 65
+    const isNearBottom = yPercent > 70
+    const isNearTop = yPercent < 15
+    
+    const position: React.CSSProperties = {
+      position: 'absolute',
+    }
+    
+    // Horizontal positioning
+    if (isNearRight) {
+      position.right = '40px'
+      position.left = 'auto'
+    } else {
+      position.left = '40px'
+      position.right = 'auto'
+    }
+    
+    // Vertical positioning
+    if (isNearBottom) {
+      position.bottom = '-10px'
+      position.top = 'auto'
+    } else if (isNearTop) {
+      position.top = '-10px'
+    } else {
+      position.top = '-10px'
+    }
+    
+    return position
+  }
+
   const handleSubmitComment = async () => {
     if (!inputValue.trim() || !pendingPosition || !id || !user) return
     
@@ -342,6 +386,7 @@ export default function ViewerPage() {
   }
 
   const goToComment = (commentId: string) => {
+    setMode('feedback') // Switch to feedback mode to show pins
     setView('artifact')
     setTimeout(() => setExpandedComment(commentId), 100)
   }
@@ -393,64 +438,97 @@ export default function ViewerPage() {
     return (
       <div style={styles.container}>
         <header style={styles.header}>
-          <div style={styles.bar}>
+          <div style={{
+            ...styles.bar,
+            ...(isMobile ? { flexDirection: 'column' as const, alignItems: 'stretch', gap: '12px' } : {})
+          }}>
             <button style={styles.backBtn} onClick={() => setView('artifact')}>
               <ArrowLeftIcon />
               <span>Back</span>
             </button>
-            <div style={styles.privateBadge}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div style={{
+              ...styles.privateBadge,
+              ...(isMobile ? { fontSize: '12px', textAlign: 'center' as const } : {})
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
               </svg>
-              <span>Private view — only you as the link owner can see all feedback</span>
+              <span>{isMobile ? 'Private view — only you can see all feedback' : 'Private view — only you as the link owner can see all feedback'}</span>
             </div>
-            <div style={{ width: 80 }} />
+            {!isMobile && <div style={{ width: 80 }} />}
           </div>
         </header>
         
-        <div style={styles.tableContainer}>
+        <div style={{
+          ...styles.tableContainer,
+          ...(isMobile ? { padding: '16px 12px 40px' } : {})
+        }}>
           <div style={styles.tableHeader}>
-            <h2 style={styles.tableTitle}>All Feedback</h2>
+            <h2 style={{
+              ...styles.tableTitle,
+              ...(isMobile ? { fontSize: '18px' } : {})
+            }}>All Feedback</h2>
             <span style={styles.tableCount}>{comments.length} comments</span>
           </div>
           
           <div style={styles.table}>
-            <div style={styles.tableRowHeader}>
-              <div style={{ ...styles.tableCell, flex: '0 0 160px' }}>User</div>
-              <div style={{ ...styles.tableCell, flex: 1 }}>Comment</div>
-              <div style={{ ...styles.tableCell, flex: '0 0 80px', textAlign: 'right' }}></div>
-            </div>
+            {!isMobile && (
+              <div style={styles.tableRowHeader}>
+                <div style={{ ...styles.tableCell, flex: '0 0 160px' }}>User</div>
+                <div style={{ ...styles.tableCell, flex: 1 }}>Comment</div>
+                <div style={{ ...styles.tableCell, flex: '0 0 80px', textAlign: 'right' }}></div>
+              </div>
+            )}
             
             {comments.length === 0 ? (
               <div style={styles.tableEmpty}>No feedback yet</div>
             ) : (
               comments.map((comment) => (
-                <div key={comment.id} style={styles.tableRow}>
-                  <div style={{ ...styles.tableCell, flex: '0 0 160px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{
-                      ...styles.tableAvatar,
-                      backgroundColor: comment.user_id === user?.id ? '#6b7cff' : '#14120f'
-                    }}>
-                      {getInitials(comment.user_name)}
+                <div key={comment.id} style={{
+                  ...styles.tableRow,
+                  ...(isMobile ? { flexDirection: 'column' as const, alignItems: 'stretch', gap: '10px' } : {})
+                }}>
+                  <div style={{ 
+                    ...(isMobile ? { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } : { ...styles.tableCell, flex: '0 0 160px', display: 'flex', alignItems: 'center', gap: '10px' })
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        ...styles.tableAvatar,
+                        backgroundColor: comment.user_id === user?.id ? '#6b7cff' : '#14120f'
+                      }}>
+                        {getInitials(comment.user_name)}
+                      </div>
+                      <div>
+                        <div style={styles.tableUserName}>{comment.user_name}</div>
+                        <div style={styles.tableTime}>{formatTime(comment.created_at)}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div style={styles.tableUserName}>{comment.user_name}</div>
-                      <div style={styles.tableTime}>{formatTime(comment.created_at)}</div>
-                    </div>
+                    {isMobile && (
+                      <button 
+                        style={styles.goToBtn}
+                        onClick={() => goToComment(comment.id)}
+                      >
+                        <GoToIcon />
+                      </button>
+                    )}
                   </div>
-                  <div style={{ ...styles.tableCell, flex: 1, color: 'rgba(20, 18, 15, 0.8)' }}>
+                  <div style={{ 
+                    ...(isMobile ? { color: 'rgba(20, 18, 15, 0.8)', fontSize: '13px', lineHeight: 1.5 } : { ...styles.tableCell, flex: 1, color: 'rgba(20, 18, 15, 0.8)' })
+                  }}>
                     {comment.message}
                   </div>
-                  <div style={{ ...styles.tableCell, flex: '0 0 80px', textAlign: 'right' }}>
-                    <button 
-                      style={styles.goToBtn}
-                      onClick={() => goToComment(comment.id)}
-                    >
-                      <GoToIcon />
-                      Go to
-                    </button>
-                  </div>
+                  {!isMobile && (
+                    <div style={{ ...styles.tableCell, flex: '0 0 80px', textAlign: 'right' }}>
+                      <button 
+                        style={styles.goToBtn}
+                        onClick={() => goToComment(comment.id)}
+                      >
+                        <GoToIcon />
+                        Go to
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -504,7 +582,7 @@ export default function ViewerPage() {
                     </div>
                     
                     {isExpanded && (
-                      <div style={styles.commentCard} onClick={(e) => e.stopPropagation()}>
+                      <div style={{...styles.commentCard, ...getCardPosition(comment.x_percent, comment.y_percent)}} onClick={(e) => e.stopPropagation()}>
                         <div style={styles.commentCardHeader}>
                           <div style={styles.commentCardUser}>{comment.user_name}</div>
                           <div style={styles.commentCardTime}>{formatTime(comment.created_at)}</div>
@@ -537,7 +615,7 @@ export default function ViewerPage() {
                     {getInitials(userName)}
                   </div>
                   
-                  <div style={styles.inputCard} onClick={(e) => e.stopPropagation()}>
+                  <div style={{...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y)}} onClick={(e) => e.stopPropagation()}>
                     <div style={styles.inputHeader}>
                       <span style={styles.inputUser}>{userName}</span>
                     </div>
@@ -618,7 +696,10 @@ export default function ViewerPage() {
         <div style={styles.bar}>
           <Link to="/" style={styles.logo}>gramola</Link>
 
-          <div style={styles.controls}>
+          <div style={{
+            ...styles.controls,
+            ...(isMobile ? styles.controlsMobile : {})
+          }}>
             {/* Left group: Mode toggle + Name */}
             <div style={styles.controlGroup}>
               {/* Mode toggle (icon buttons) */}
@@ -647,9 +728,12 @@ export default function ViewerPage() {
                 </button>
               </div>
 
-              {/* You: Name pill */}
-              <div style={styles.youPill}>
-                <span style={styles.youLabel}>You:</span>
+              {/* You: Name pill - hide label on mobile */}
+              <div style={{
+                ...styles.youPill,
+                ...(isMobile ? styles.youPillMobile : {})
+              }}>
+                {!isMobile && <span style={styles.youLabel}>You:</span>}
                 {isEditingName ? (
                   <input
                     ref={inputRef}
@@ -659,32 +743,42 @@ export default function ViewerPage() {
                     onChange={(e) => setEditValue(e.target.value)}
                     onBlur={() => saveName(editValue)}
                     onKeyDown={handleNameKeyDown}
-                    style={styles.nameEdit}
+                    style={{
+                      ...styles.nameEdit,
+                      ...(isMobile ? { width: '100px' } : {})
+                    }}
                     autoFocus
                   />
                 ) : (
                   <button
                     onClick={startEditing}
-                    style={styles.nameBadge}
+                    style={{
+                      ...styles.nameBadge,
+                      ...(isMobile ? { maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' } : {})
+                    }}
                     type="button"
                     aria-label="Your name (click to edit)"
                   >
-                    {userName}
+                    {isMobile ? getInitials(userName) : userName}
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Separator */}
-            <div style={styles.separator} />
+            {/* Separator - hide on mobile */}
+            {!isMobile && <div style={styles.separator} />}
 
             {/* Right group: Owner controls + Copy + Fullscreen */}
             <div style={styles.controlGroup}>
-              {/* All comments button - only for owner */}
+              {/* All comments button - only for owner, compact on mobile */}
               {isOwner && comments.length > 0 && (
-                <button style={styles.allCommentsBtn} onClick={() => setView('table')}>
+                <button style={{
+                  ...styles.allCommentsBtn,
+                  ...(isMobile ? { padding: '0 10px' } : {})
+                }} onClick={() => setView('table')}>
                   <ListIcon />
-                  <span>All ({comments.length})</span>
+                  {!isMobile && <span>All ({comments.length})</span>}
+                  {isMobile && <span>{comments.length}</span>}
                 </button>
               )}
               
@@ -706,21 +800,23 @@ export default function ViewerPage() {
                 {copied ? <CheckIcon /> : <CopyIcon />}
               </button>
 
-              {/* Fullscreen button */}
-              <button
-                onClick={toggleFullscreen}
-                onMouseEnter={() => setFullscreenHover(true)}
-                onMouseLeave={() => setFullscreenHover(false)}
-                style={{
-                  ...styles.iconButton,
-                  backgroundColor: fullscreenHover ? 'rgba(20, 18, 15, 0.06)' : '#fff',
-                }}
-                type="button"
-                aria-label="Enter fullscreen"
-                title="Fullscreen"
-              >
-                <ExpandIcon />
-              </button>
+              {/* Fullscreen button - hide on mobile */}
+              {!isMobile && (
+                <button
+                  onClick={toggleFullscreen}
+                  onMouseEnter={() => setFullscreenHover(true)}
+                  onMouseLeave={() => setFullscreenHover(false)}
+                  style={{
+                    ...styles.iconButton,
+                    backgroundColor: fullscreenHover ? 'rgba(20, 18, 15, 0.06)' : '#fff',
+                  }}
+                  type="button"
+                  aria-label="Enter fullscreen"
+                  title="Fullscreen"
+                >
+                  <ExpandIcon />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -771,7 +867,7 @@ export default function ViewerPage() {
                     </div>
                     
                     {isExpanded && (
-                      <div style={styles.commentCard} onClick={(e) => e.stopPropagation()}>
+                      <div style={{...styles.commentCard, ...getCardPosition(comment.x_percent, comment.y_percent)}} onClick={(e) => e.stopPropagation()}>
                         <div style={styles.commentCardHeader}>
                           <div style={styles.commentCardUser}>{comment.user_name}</div>
                           <div style={styles.commentCardTime}>{formatTime(comment.created_at)}</div>
@@ -804,7 +900,7 @@ export default function ViewerPage() {
                     {getInitials(userName)}
                   </div>
                   
-                  <div style={styles.inputCard} onClick={(e) => e.stopPropagation()}>
+                  <div style={{...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y)}} onClick={(e) => e.stopPropagation()}>
                     <div style={styles.inputHeader}>
                       <span style={styles.inputUser}>{userName}</span>
                     </div>
@@ -870,14 +966,14 @@ const styles: Record<string, React.CSSProperties> = {
   header: {
     maxWidth: '1100px',
     margin: '0 auto',
-    padding: '18px 20px 0',
+    padding: '18px 16px 0',
   },
   bar: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '16px',
-    flexWrap: 'wrap',
+    gap: '12px',
+    flexWrap: 'wrap' as const,
   },
   logo: {
     fontWeight: 700,
@@ -893,7 +989,10 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '12px',
     flex: '0 0 auto',
-    flexWrap: 'wrap',
+    flexWrap: 'wrap' as const,
+  },
+  controlsMobile: {
+    gap: '8px',
   },
   controlGroup: {
     display: 'flex',
@@ -927,7 +1026,11 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '10px',
     border: '1px solid rgba(20, 18, 15, 0.16)',
     backgroundColor: '#fff',
-    whiteSpace: 'nowrap',
+    whiteSpace: 'nowrap' as const,
+  },
+  youPillMobile: {
+    padding: '0 8px',
+    gap: '0',
   },
   youLabel: {
     fontSize: '12px',
@@ -1014,7 +1117,7 @@ const styles: Record<string, React.CSSProperties> = {
   mainViewer: {
     maxWidth: '1100px',
     margin: '0 auto',
-    padding: '16px 20px 24px',
+    padding: '16px 16px 24px',
   },
   viewer: {
     position: 'relative',
@@ -1113,6 +1216,7 @@ const styles: Record<string, React.CSSProperties> = {
     right: 0,
     bottom: 0,
     zIndex: 10,
+    pointerEvents: 'none',
   },
   feedbackOverlayFullscreen: {
     position: 'absolute',
@@ -1121,11 +1225,13 @@ const styles: Record<string, React.CSSProperties> = {
     right: 0,
     bottom: 0,
     zIndex: 10,
+    pointerEvents: 'none',
   },
   // Pin styles
   pinContainer: {
     position: 'absolute',
     transform: 'translate(-50%, -50%)',
+    pointerEvents: 'auto',
   },
   pin: {
     width: '32px',
@@ -1160,9 +1266,7 @@ const styles: Record<string, React.CSSProperties> = {
   // Comment card
   commentCard: {
     position: 'absolute',
-    left: '40px',
-    top: '-10px',
-    width: '240px',
+    width: 'min(240px, calc(100vw - 80px))',
     padding: '14px',
     borderRadius: '12px',
     backgroundColor: '#fff',
@@ -1207,9 +1311,7 @@ const styles: Record<string, React.CSSProperties> = {
   // Input card
   inputCard: {
     position: 'absolute',
-    left: '40px',
-    top: '-10px',
-    width: '260px',
+    width: 'min(260px, calc(100vw - 80px))',
     padding: '14px',
     borderRadius: '12px',
     backgroundColor: '#fff',
