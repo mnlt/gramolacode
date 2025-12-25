@@ -689,13 +689,13 @@ function fixBrokenTemplateLiterals(code: string): string {
 }
 
 function fixReturnStatements(code: string): string {
-  return code.replace(/return\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (match, content) => {
+  return code.replace(/return\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (_match, content) => {
     return 'return `' + content + '`'
   })
 }
 
 function fixAssignments(code: string): string {
-  return code.replace(/=\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (match, content) => {
+  return code.replace(/=\s*['"]([^'"]*\$\{[^'"]*)['"]/g, (_match, content) => {
     return '= `' + content + '`'
   })
 }
@@ -826,7 +826,7 @@ function analyzeCode(code: string): CodeAnalysis {
   let importMatch
 
   while ((importMatch = importRegex.exec(code)) !== null) {
-    const namedImports = importMatch[2]
+    const _namedImports = importMatch[2]
     const source = importMatch[3]
 
     const isShadcn = source.startsWith('@/components/ui/')

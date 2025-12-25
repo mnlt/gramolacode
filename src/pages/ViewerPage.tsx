@@ -224,10 +224,11 @@ export default function ViewerPage() {
 
   // Listen for submit events from ArtifactRenderer
   useEffect(() => {
-    const handleSubmit = async (e: CustomEvent<{ message: string; x: number; y: number }>) => {
+    const handleSubmit = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string; x: number; y: number }>
       if (!id || !user || submitting) return
       
-      const { message, x, y } = e.detail
+      const { message, x, y } = customEvent.detail
       
       setSubmitting(true)
       
@@ -260,11 +261,11 @@ export default function ViewerPage() {
       setExpandedComment(null)
     }
 
-    window.addEventListener('gramola-submit-comment', handleSubmit as EventListener)
+    window.addEventListener('gramola-submit-comment', handleSubmit)
     window.addEventListener('gramola-close-expanded', handleCloseExpanded)
     
     return () => {
-      window.removeEventListener('gramola-submit-comment', handleSubmit as EventListener)
+      window.removeEventListener('gramola-submit-comment', handleSubmit)
       window.removeEventListener('gramola-close-expanded', handleCloseExpanded)
     }
   }, [id, user, userName, submitting])
