@@ -50,7 +50,7 @@ export default function ViewerPage() {
   const [expandedComment, setExpandedComment] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [iframeHeight, setIframeHeight] = useState<number | null>(null)
+  const [contentHeight, setContentHeight] = useState<number>(400)
 
   const [copyHover, setCopyHover] = useState(false)
   const [fullscreenHover, setFullscreenHover] = useState(false)
@@ -83,39 +83,12 @@ export default function ViewerPage() {
     fetchData()
   }, [id])
 
-  useEffect(() => {
-    if (!artifact) return
-    let attempts = 0
-    const maxAttempts = 60
-    const expandIframe = () => {
-      const iframe = viewerRef.current?.querySelector('iframe')
-      if (!iframe) {
-        if (attempts < maxAttempts) { attempts++; setTimeout(expandIframe, 500) }
-        return
-      }
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document
-        if (!doc?.body) {
-          if (attempts < maxAttempts) { attempts++; setTimeout(expandIframe, 500) }
-          return
-        }
-        const height = Math.max(doc.body.scrollHeight, doc.body.offsetHeight, doc.documentElement?.scrollHeight || 0, doc.documentElement?.offsetHeight || 0)
-        if (height > 100) {
-          iframe.style.height = `${height}px`
-          setIframeHeight(height)
-          doc.body.style.overflow = 'hidden'
-          doc.documentElement.style.overflow = 'hidden'
-        } else if (attempts < maxAttempts) {
-          attempts++
-          setTimeout(expandIframe, 500)
-        }
-      } catch {
-        setIframeHeight(window.innerHeight - 150)
-      }
+  // Callback para recibir la altura del contenido desde ArtifactRenderer
+  const handleContentHeight = useCallback((height: number) => {
+    if (height > 100) {
+      setContentHeight(height)
     }
-    const timer = setTimeout(expandIframe, 1000)
-    return () => clearTimeout(timer)
-  }, [artifact])
+  }, [])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -214,9 +187,9 @@ export default function ViewerPage() {
     setView('artifact')
     setTimeout(() => {
       setExpandedComment(commentId)
-      if (comment && viewerRef.current && iframeHeight) {
+      if (comment && viewerRef.current) {
         const viewerTop = viewerRef.current.offsetTop
-        const commentY = (comment.y_percent / 100) * iframeHeight
+        const commentY = (comment.y_percent / 100) * contentHeight
         window.scrollTo({ top: viewerTop + commentY - window.innerHeight / 3, behavior: 'smooth' })
       }
     }, 150)
@@ -284,9 +257,9 @@ export default function ViewerPage() {
   if (isFullscreen) return (
     <div style={styles.fullscreenContainer}>
       <div ref={viewerRef} style={styles.fullscreenViewer}>
-        <ArtifactRenderer code={artifact.code} />
+        <ArtifactRenderer code={artifact.code} onHeightChange={handleContentHeight} />
         {mode === 'feedback' && (
-          <div style={styles.fullscreenOverlay} onClick={handleOverlayClick} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
+          <div style={{ ...styles.fullscreenOverlay, height: contentHeight }} onClick={handleOverlayClick} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
             {visibleComments.map(c => {
               const isExpanded = expandedComment === c.id
               const isMine = c.user_id === user?.id
@@ -356,10 +329,21 @@ export default function ViewerPage() {
       </header>
 
       <main style={styles.mainViewer}>
-        <section ref={viewerRef} style={{ ...styles.viewer, borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20,18,15,0.25)', height: iframeHeight ? `${iframeHeight}px` : 'auto', minHeight: '400px' }}>
-          <ArtifactRenderer code={artifact.code} />
+        <section 
+          ref={viewerRef} 
+          style={{ 
+            ...styles.viewer, 
+            borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20,18,15,0.25)',
+          }}
+        >
+          <ArtifactRenderer code={artifact.code} onHeightChange={handleContentHeight} />
           {mode === 'feedback' && (
-            <div style={styles.overlay} onClick={handleOverlayClick} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
+            <div 
+              style={{ ...styles.overlay, height: contentHeight }} 
+              onClick={handleOverlayClick} 
+              onMouseMove={handleMouseMove} 
+              onMouseLeave={handleMouseLeave}
+            >
               {visibleComments.map(c => {
                 const isExpanded = expandedComment === c.id
                 const isMine = c.user_id === user?.id
@@ -420,8 +404,25 @@ const styles: Record<string, React.CSSProperties> = {
   allCommentsBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '34px', padding: '0 12px', borderRadius: '10px', border: '1px solid rgba(20,18,15,0.16)', backgroundColor: '#fff', color: '#14120f', fontSize: '13px', fontWeight: 500, cursor: 'pointer' },
   mainCenter: { maxWidth: '1100px', margin: '0 auto', padding: '16px 20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 96px)' },
   mainViewer: { maxWidth: '1100px', margin: '0 auto', padding: '16px 16px 24px' },
-  viewer: { position: 'relative', backgroundColor: '#fff', borderRadius: '14px', overflow: 'hidden', border: '2px solid rgba(20,18,15,0.25)', transition: 'border-color 0.2s' },
-  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, cursor: 'crosshair', zIndex: 10 },
+  // CAMBIO CLAVE: El viewer NO tiene overflow hidden, se expande con el contenido
+  viewer: { 
+    position: 'relative', 
+    backgroundColor: '#fff', 
+    borderRadius: '14px', 
+    border: '2px solid rgba(20,18,15,0.25)', 
+    transition: 'border-color 0.2s',
+    // No overflow hidden - el contenido determina la altura
+  },
+  // El overlay cubre todo el contenido expandido
+  overlay: { 
+    position: 'absolute', 
+    top: 0, 
+    left: 0, 
+    right: 0, 
+    // La altura se establece dinámicamente basada en contentHeight
+    cursor: 'crosshair', 
+    zIndex: 10 
+  },
   pinContainer: { position: 'absolute', transform: 'translate(-50%, -50%)' },
   pin: { width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, cursor: 'pointer', border: '2px solid #fff' },
   pinMine: { backgroundColor: '#6b7cff', color: '#fff', boxShadow: '0 2px 8px rgba(107,124,255,0.4)' },
@@ -449,7 +450,7 @@ const styles: Record<string, React.CSSProperties> = {
   backButton: { display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: 600, color: '#fff', backgroundColor: 'rgba(20,18,15,0.94)', borderRadius: '8px', textDecoration: 'none' },
   fullscreenContainer: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#fff', zIndex: 1000, overflow: 'auto' },
   fullscreenViewer: { position: 'relative', width: '100%', minHeight: '100%' },
-  fullscreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, cursor: 'crosshair', zIndex: 10 },
+  fullscreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, cursor: 'crosshair', zIndex: 10 },
   exitFullscreenBtn: { position: 'fixed', top: '16px', right: '16px', display: 'inline-flex', alignItems: 'center', height: '34px', padding: '0 10px 0 12px', borderRadius: '10px', border: '1px solid rgba(20,18,15,0.16)', backgroundColor: '#fff', color: 'rgba(20,18,15,0.8)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', zIndex: 1001 },
   exitFullscreenText: { letterSpacing: '-0.01em' },
   exitFullscreenDivider: { width: '1px', height: '16px', backgroundColor: 'rgba(20,18,15,0.15)', margin: '0 10px' },

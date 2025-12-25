@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useEffect, useRef, useCallback } from 'react'
 import {
   SandpackProvider,
   SandpackPreview,
@@ -6,9 +6,12 @@ import {
 
 interface ArtifactRendererProps {
   code: string
+  onHeightChange?: (height: number) => void
 }
 
-export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
+export default function ArtifactRenderer({ code, onHeightChange }: ArtifactRendererProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  
   const sandpackConfig = useMemo(() => {
     const trimmedCode = code.trim()
     if (!trimmedCode) return null
@@ -21,30 +24,142 @@ export default function ArtifactRenderer({ code }: ArtifactRendererProps) {
     return { files, dependencies }
   }, [code])
 
+  // Función para expandir el iframe y reportar la altura
+  const expandIframe = useCallback(() => {
+    if (!containerRef.current) return
+    
+    const iframe = containerRef.current.querySelector('iframe')
+    if (!iframe) return
+    
+    try {
+      const doc = iframe.contentDocument || iframe.contentWindow?.document
+      if (!doc?.body) return
+      
+      // Calcular la altura real del contenido
+      const height = Math.max(
+        doc.body.scrollHeight,
+        doc.body.offsetHeight,
+        doc.documentElement?.scrollHeight || 0,
+        doc.documentElement?.offsetHeight || 0,
+        400 // Altura mínima
+      )
+      
+      // Expandir el iframe a su altura natural
+      iframe.style.height = `${height}px`
+      iframe.style.minHeight = `${height}px`
+      
+      // Deshabilitar scroll interno del iframe
+      doc.body.style.overflow = 'hidden'
+      doc.documentElement.style.overflow = 'hidden'
+      doc.body.style.height = 'auto'
+      doc.documentElement.style.height = 'auto'
+      
+      // Notificar al padre la altura
+      if (onHeightChange && height > 100) {
+        onHeightChange(height)
+      }
+      
+      return height
+    } catch {
+      // Si hay error de CORS, usar una altura por defecto
+      const defaultHeight = Math.max(window.innerHeight - 150, 400)
+      if (onHeightChange) {
+        onHeightChange(defaultHeight)
+      }
+      return defaultHeight
+    }
+  }, [onHeightChange])
+
+  // Observar cambios en el iframe y expandirlo
+  useEffect(() => {
+    if (!sandpackConfig) return
+    
+    let attempts = 0
+    const maxAttempts = 100
+    let intervalId: NodeJS.Timeout
+    let lastHeight = 0
+    
+    const checkAndExpand = () => {
+      const height = expandIframe()
+      
+      if (height && height > 100) {
+        // Si la altura cambió, seguir observando un poco más
+        if (height !== lastHeight) {
+          lastHeight = height
+          attempts = 0 // Reset attempts cuando hay cambio
+        }
+      }
+      
+      attempts++
+      if (attempts >= maxAttempts) {
+        clearInterval(intervalId)
+      }
+    }
+    
+    // Esperar a que Sandpack cargue
+    const startTimer = setTimeout(() => {
+      // Chequear inicialmente
+      checkAndExpand()
+      
+      // Seguir chequeando por si el contenido cambia dinámicamente
+      intervalId = setInterval(checkAndExpand, 500)
+    }, 1000)
+    
+    return () => {
+      clearTimeout(startTimer)
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [sandpackConfig, expandIframe])
+
+  // También observar el resize de la ventana
+  useEffect(() => {
+    const handleResize = () => {
+      setTimeout(expandIframe, 100)
+    }
+    
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [expandIframe])
+
   if (!sandpackConfig) {
     return <div style={styles.error}>No code provided</div>
   }
 
   return (
-    <SandpackProvider
-      template="react-ts"
-      files={sandpackConfig.files}
-      customSetup={{ dependencies: sandpackConfig.dependencies }}
-      options={{ externalResources: ['https://cdn.tailwindcss.com'] }}
-      style={{ height: '100%', width: '100%' }}
-    >
-      <SandpackPreview
+    <div ref={containerRef} style={styles.container}>
+      <SandpackProvider
+        template="react-ts"
+        files={sandpackConfig.files}
+        customSetup={{ dependencies: sandpackConfig.dependencies }}
+        options={{ externalResources: ['https://cdn.tailwindcss.com'] }}
         style={{ height: '100%', width: '100%' }}
-        showNavigator={false}
-        showRefreshButton={false}
-        showOpenInCodeSandbox={false}
-      />
-    </SandpackProvider>
+      >
+        <SandpackPreview
+          style={styles.preview}
+          showNavigator={false}
+          showRefreshButton={false}
+          showOpenInCodeSandbox={false}
+        />
+      </SandpackProvider>
+    </div>
   )
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  error: { padding: '20px', color: '#dc2626', textAlign: 'center' },
+  container: {
+    width: '100%',
+    position: 'relative',
+  },
+  preview: {
+    width: '100%',
+    minHeight: '400px',
+    // El iframe dentro se expandirá dinámicamente
+  },
+  error: { 
+    padding: '20px', 
+    color: '#dc2626', 
+    textAlign: 'center' 
+  },
 }
 
 // ============================================================================
