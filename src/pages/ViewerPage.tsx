@@ -26,6 +26,8 @@ const ArrowLeftIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill
 const GoToIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 8 16 12 12 16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
 const SendIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
 const LockIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+const PlusIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+const ChevronIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
 
 export default function ViewerPage() {
   const { id } = useParams<{ id: string }>()
@@ -42,15 +44,13 @@ export default function ViewerPage() {
   const [isEditingName, setIsEditingName] = useState(false)
   const [editValue, setEditValue] = useState('')
   const [copied, setCopied] = useState(false)
-  const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 })
-  const [isOverViewer, setIsOverViewer] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   
-  const [pendingPosition, setPendingPosition] = useState<{ x: number; y: number } | null>(null)
-  const [expandedComment, setExpandedComment] = useState<string | null>(null)
-  const [inputValue, setInputValue] = useState('')
+  const [showCommentForm, setShowCommentForm] = useState(false)
+  const [commentText, setCommentText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [contentHeight, setContentHeight] = useState<number>(400)
+  const [panelOpen, setPanelOpen] = useState(true)
 
   const [copyHover, setCopyHover] = useState(false)
   const [fullscreenHover, setFullscreenHover] = useState(false)
@@ -83,7 +83,6 @@ export default function ViewerPage() {
     fetchData()
   }, [id])
 
-  // Callback para recibir la altura del contenido desde ArtifactRenderer
   const handleContentHeight = useCallback((height: number) => {
     if (height > 100) {
       setContentHeight(height)
@@ -94,13 +93,12 @@ export default function ViewerPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isFullscreen) setIsFullscreen(false)
-        else if (expandedComment) setExpandedComment(null)
-        else if (pendingPosition) { setPendingPosition(null); setInputValue('') }
+        else if (showCommentForm) { setShowCommentForm(false); setCommentText('') }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isFullscreen, expandedComment, pendingPosition])
+  }, [isFullscreen, showCommentForm])
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 640)
@@ -123,74 +121,56 @@ export default function ViewerPage() {
     setCopied(true); setTimeout(() => setCopied(false), 1200)
   }
 
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    if (mode !== 'feedback') return
-    const target = e.target as HTMLElement
-    if (target.closest('[data-pin]') || target.closest('[data-input-card]')) return
-    const overlay = e.currentTarget as HTMLElement
-    const rect = overlay.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-    setExpandedComment(null)
-    setPendingPosition({ x, y })
+  const handleAddComment = useCallback(() => {
+    setShowCommentForm(true)
     setTimeout(() => textareaRef.current?.focus(), 50)
-  }
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (mode !== 'feedback') return
-    const overlay = e.currentTarget as HTMLElement
-    const rect = overlay.getBoundingClientRect()
-    setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-    setIsOverViewer(true)
-  }
-
-  const handleMouseLeave = () => setIsOverViewer(false)
-
-  const handlePinClick = (e: React.MouseEvent, comment: Comment) => {
-    e.stopPropagation()
-    if (isOwner || comment.user_id === user?.id) {
-      setExpandedComment(expandedComment === comment.id ? null : comment.id)
-      setPendingPosition(null)
-    }
-  }
-
-  const getCardPosition = (xPercent: number, yPercent: number): React.CSSProperties => ({
-    position: 'absolute',
-    ...(xPercent > 65 ? { right: '40px', left: 'auto' } : { left: '40px', right: 'auto' }),
-    ...(yPercent > 70 ? { bottom: '-10px', top: 'auto' } : { top: '-10px' }),
-  })
+  }, [])
 
   const handleSubmitComment = async () => {
-    if (!inputValue.trim() || !pendingPosition || !id || !user) return
+    if (!commentText.trim() || !id || !user || !viewerRef.current) return
+    
     setSubmitting(true)
     try {
+      const scrollPosition = viewerRef.current.scrollTop
+      const viewportHeight = viewerRef.current.clientHeight
+
       const { data, error: err } = await supabase.from('comments').insert({
-        artifact_id: id, user_id: user.id, user_name: userName,
-        x_percent: pendingPosition.x, y_percent: pendingPosition.y, message: inputValue.trim()
+        artifact_id: id,
+        user_id: user.id,
+        user_name: userName,
+        scroll_position: scrollPosition,
+        viewport_height: viewportHeight,
+        message: commentText.trim()
       }).select().single()
+      
       if (err) throw err
       setComments([...comments, data])
-      setPendingPosition(null)
-      setInputValue('')
-    } catch (err) { console.error('Error:', err) }
-    finally { setSubmitting(false) }
+      setShowCommentForm(false)
+      setCommentText('')
+    } catch (err) {
+      console.error('Error:', err)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleCommentKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitComment() }
-    else if (e.key === 'Escape') { setPendingPosition(null); setInputValue('') }
+    else if (e.key === 'Escape') { setShowCommentForm(false); setCommentText('') }
   }
 
-  const goToComment = (commentId: string) => {
-    const comment = comments.find(c => c.id === commentId)
+  const goToComment = (comment: Comment) => {
+    if (!viewerRef.current) return
+    
     setMode('feedback')
     setView('artifact')
+    
     setTimeout(() => {
-      setExpandedComment(commentId)
-      if (comment && viewerRef.current) {
-        const viewerTop = viewerRef.current.offsetTop
-        const commentY = (comment.y_percent / 100) * contentHeight
-        window.scrollTo({ top: viewerTop + commentY - window.innerHeight / 3, behavior: 'smooth' })
+      if (viewerRef.current) {
+        viewerRef.current.scrollTo({
+          top: comment.scroll_position,
+          behavior: 'smooth'
+        })
       }
     }, 150)
   }
@@ -243,10 +223,10 @@ export default function ViewerPage() {
                   <div style={{ ...styles.tableAvatar, backgroundColor: c.user_id === user?.id ? '#6b7cff' : '#14120f' }}>{getInitials(c.user_name)}</div>
                   <div><div style={styles.tableUserName}>{c.user_name}</div><div style={styles.tableTime}>{formatTime(c.created_at)}</div></div>
                 </div>
-                {isMobile && <button style={styles.goToBtn} onClick={() => goToComment(c.id)}><GoToIcon /></button>}
+                {isMobile && <button style={styles.goToBtn} onClick={() => goToComment(c)}><GoToIcon /></button>}
               </div>
               <div style={isMobile ? { color: 'rgba(20,18,15,0.8)', fontSize: '13px', lineHeight: 1.5 } : { ...styles.tableCell, flex: 1, color: 'rgba(20,18,15,0.8)' }}>{c.message}</div>
-              {!isMobile && <div style={{ ...styles.tableCell, flex: '0 0 80px', textAlign: 'right' as const }}><button style={styles.goToBtn} onClick={() => goToComment(c.id)}><GoToIcon />Go to</button></div>}
+              {!isMobile && <div style={{ ...styles.tableCell, flex: '0 0 80px', textAlign: 'right' as const }}><button style={styles.goToBtn} onClick={() => goToComment(c)}><GoToIcon />Go to</button></div>}
             </div>
           ))}
         </div>
@@ -258,42 +238,6 @@ export default function ViewerPage() {
     <div style={styles.fullscreenContainer}>
       <div ref={viewerRef} style={{ ...styles.fullscreenViewer, height: contentHeight }}>
         <ArtifactRenderer code={artifact.code} onHeightChange={handleContentHeight} />
-        {mode === 'feedback' && (
-          <div style={{ ...styles.fullscreenOverlay, height: contentHeight }} onClick={handleOverlayClick} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-            {visibleComments.map(c => {
-              const isExpanded = expandedComment === c.id
-              const isMine = c.user_id === user?.id
-              return (
-                <div key={c.id} data-pin="true" style={{ ...styles.pinContainer, left: `${c.x_percent}%`, top: `${c.y_percent}%`, zIndex: isExpanded ? 100 : 10 }}>
-                  <div style={{ ...styles.pin, ...(isMine ? styles.pinMine : styles.pinOther), ...(isExpanded ? styles.pinExpanded : {}) }} onClick={(e) => handlePinClick(e, c)}>{getInitials(c.user_name)}</div>
-                  {isExpanded && (
-                    <div style={{ ...styles.commentCard, ...getCardPosition(c.x_percent, c.y_percent), width: 'min(260px, calc(100vw - 80px))' }}>
-                      <div style={styles.commentCardHeader}><div style={styles.commentCardName}>{c.user_name}</div><button style={styles.commentCardClose} onClick={(e) => { e.stopPropagation(); setExpandedComment(null) }}>×</button></div>
-                      <div style={styles.commentCardMessage}>{c.message}</div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-            {pendingPosition && (
-              <div data-input-card="true" style={{ ...styles.pinContainer, left: `${pendingPosition.x}%`, top: `${pendingPosition.y}%`, zIndex: 200 }}>
-                <div style={{ ...styles.pin, ...styles.pinMine }}>{getInitials(userName)}</div>
-                <div style={{ ...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y), width: 'min(260px, calc(100vw - 80px))' }}>
-                  <div style={styles.inputCardHeader}><span style={styles.inputCardName}>{userName}</span></div>
-                  <textarea ref={textareaRef} style={styles.inputTextarea} placeholder="Add your feedback..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleCommentKeyDown} rows={2} />
-                  <div style={styles.inputCardFooter}>
-                    <span style={styles.inputHint}>Enter ↵</span>
-                    <div style={styles.inputActions}>
-                      <button style={styles.cancelBtn} onClick={() => { setPendingPosition(null); setInputValue('') }}>Cancel</button>
-                      <button style={{ ...styles.sendBtn, opacity: !inputValue.trim() || submitting ? 0.5 : 1 }} onClick={handleSubmitComment} disabled={!inputValue.trim() || submitting}><SendIcon /></button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {isOverViewer && !pendingPosition && !expandedComment && <div style={{ ...styles.cursor, left: cursorPos.x, top: cursorPos.y }}>+ Click to comment</div>}
-          </div>
-        )}
       </div>
       <button onClick={toggleFullscreen} onMouseEnter={() => setExitHover(true)} onMouseLeave={() => setExitHover(false)} style={{ ...styles.exitFullscreenBtn, backgroundColor: exitHover ? '#f5f5f5' : '#fff' }} type="button">
         <span style={styles.exitFullscreenText}>gramola</span><span style={styles.exitFullscreenDivider} /><ShrinkIcon />
@@ -309,7 +253,7 @@ export default function ViewerPage() {
           <div style={{ ...styles.controls, ...(isMobile ? { gap: '8px' } : {}) }}>
             <div style={styles.controlGroup}>
               <div style={styles.seg} role="group">
-                <button onClick={() => { setMode('browsing'); setIsOverViewer(false); setPendingPosition(null); setExpandedComment(null) }} style={{ ...styles.segIconButton, ...(mode === 'browsing' ? styles.segButtonBrowsingActive : {}) }} title="Browsing mode"><EyeIcon /></button>
+                <button onClick={() => setMode('browsing')} style={{ ...styles.segIconButton, ...(mode === 'browsing' ? styles.segButtonBrowsingActive : {}) }} title="Browsing mode"><EyeIcon /></button>
                 <button onClick={() => setMode('feedback')} style={{ ...styles.segIconButton, ...(mode === 'feedback' ? styles.segButtonFeedbackActive : {}) }} title="Feedback mode"><MessageIcon /></button>
               </div>
               <div style={{ ...styles.youPill, ...(isMobile ? { padding: '0 8px', gap: 0 } : {}) }}>
@@ -329,58 +273,110 @@ export default function ViewerPage() {
       </header>
 
       <main style={styles.mainViewer}>
-        <section 
-          ref={viewerRef} 
-          style={{ 
-            ...styles.viewer, 
-            borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20,18,15,0.25)',
-            height: contentHeight,
-            minHeight: 400,
-          }}
-        >
-          <ArtifactRenderer code={artifact.code} onHeightChange={handleContentHeight} />
-          {mode === 'feedback' && (
+        <div style={styles.layout}>
+          {/* Viewer */}
+          <div style={styles.viewerContainer}>
             <div 
-              style={{ ...styles.overlay, height: contentHeight }} 
-              onClick={handleOverlayClick} 
-              onMouseMove={handleMouseMove} 
-              onMouseLeave={handleMouseLeave}
+              ref={viewerRef}
+              style={{ 
+                ...styles.viewer, 
+                borderColor: mode === 'feedback' ? '#6b7cff' : 'rgba(20,18,15,0.25)',
+                height: contentHeight,
+                minHeight: 400,
+              }}
             >
-              {visibleComments.map(c => {
-                const isExpanded = expandedComment === c.id
-                const isMine = c.user_id === user?.id
-                return (
-                  <div key={c.id} data-pin="true" style={{ ...styles.pinContainer, left: `${c.x_percent}%`, top: `${c.y_percent}%`, zIndex: isExpanded ? 100 : 10 }}>
-                    <div style={{ ...styles.pin, ...(isMine ? styles.pinMine : styles.pinOther), ...(isExpanded ? styles.pinExpanded : {}) }} onClick={(e) => handlePinClick(e, c)}>{getInitials(c.user_name)}</div>
-                    {isExpanded && (
-                      <div style={{ ...styles.commentCard, ...getCardPosition(c.x_percent, c.y_percent), width: 'min(260px, calc(100vw - 80px))' }}>
-                        <div style={styles.commentCardHeader}><div style={styles.commentCardName}>{c.user_name}</div><button style={styles.commentCardClose} onClick={(e) => { e.stopPropagation(); setExpandedComment(null) }}>×</button></div>
-                        <div style={styles.commentCardMessage}>{c.message}</div>
-                      </div>
-                    )}
+              <ArtifactRenderer code={artifact.code} onHeightChange={handleContentHeight} />
+            </div>
+
+            {/* Floating Add Comment Button */}
+            {mode === 'feedback' && !showCommentForm && (
+              <button onClick={handleAddComment} style={styles.floatingButton} title="Add comment at current position">
+                <PlusIcon />
+                <span>Add comment</span>
+              </button>
+            )}
+
+            {/* Comment Form Overlay */}
+            {mode === 'feedback' && showCommentForm && (
+              <div style={styles.commentFormOverlay}>
+                <div style={styles.commentForm}>
+                  <div style={styles.commentFormHeader}>
+                    <span style={styles.commentFormTitle}>Add feedback</span>
+                    <span style={styles.commentFormContext}>At current view position</span>
                   </div>
-                )
-              })}
-              {pendingPosition && (
-                <div data-input-card="true" style={{ ...styles.pinContainer, left: `${pendingPosition.x}%`, top: `${pendingPosition.y}%`, zIndex: 200 }}>
-                  <div style={{ ...styles.pin, ...styles.pinMine }}>{getInitials(userName)}</div>
-                  <div style={{ ...styles.inputCard, ...getCardPosition(pendingPosition.x, pendingPosition.y), width: 'min(260px, calc(100vw - 80px))' }}>
-                    <div style={styles.inputCardHeader}><span style={styles.inputCardName}>{userName}</span></div>
-                    <textarea ref={textareaRef} style={styles.inputTextarea} placeholder="Add your feedback..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleCommentKeyDown} rows={2} />
-                    <div style={styles.inputCardFooter}>
-                      <span style={styles.inputHint}>Enter ↵</span>
-                      <div style={styles.inputActions}>
-                        <button style={styles.cancelBtn} onClick={() => { setPendingPosition(null); setInputValue('') }}>Cancel</button>
-                        <button style={{ ...styles.sendBtn, opacity: !inputValue.trim() || submitting ? 0.5 : 1 }} onClick={handleSubmitComment} disabled={!inputValue.trim() || submitting}><SendIcon /></button>
-                      </div>
+                  <textarea
+                    ref={textareaRef}
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    onKeyDown={handleCommentKeyDown}
+                    placeholder="What's your feedback?"
+                    style={styles.commentTextarea}
+                    rows={3}
+                  />
+                  <div style={styles.commentFormFooter}>
+                    <span style={styles.commentFormHint}>Enter to send, Esc to cancel</span>
+                    <div style={styles.commentFormActions}>
+                      <button onClick={() => { setShowCommentForm(false); setCommentText('') }} style={styles.cancelButton}>Cancel</button>
+                      <button onClick={handleSubmitComment} disabled={!commentText.trim() || submitting} style={{ ...styles.submitButton, opacity: commentText.trim() && !submitting ? 1 : 0.5 }}><SendIcon /></button>
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Comments Panel */}
+          {mode === 'feedback' && !isMobile && (
+            <div style={styles.panel}>
+              <div style={styles.panelHeader}>
+                <button onClick={() => setPanelOpen(!panelOpen)} style={styles.panelToggle}>
+                  <MessageIcon />
+                  <span style={styles.panelTitle}>Feedback ({visibleComments.length})</span>
+                  <div style={{ ...styles.panelChevron, transform: panelOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                    <ChevronIcon />
+                  </div>
+                </button>
+              </div>
+
+              {panelOpen && (
+                <div style={styles.panelContent}>
+                  {visibleComments.length === 0 ? (
+                    <div style={styles.emptyState}>
+                      <MessageIcon />
+                      <p>No feedback yet</p>
+                      <p style={styles.emptyStateHint}>Click "Add comment" to leave feedback</p>
+                    </div>
+                  ) : (
+                    <div style={styles.commentsList}>
+                      {visibleComments.map((comment) => (
+                        <div key={comment.id} style={{ ...styles.commentCard, borderColor: comment.user_id === user?.id ? '#6b7cff' : 'rgba(20,18,15,0.12)' }}>
+                          <div style={styles.commentHeader}>
+                            <div style={styles.commentAuthor}>
+                              <div style={{ ...styles.commentAvatar, backgroundColor: comment.user_id === user?.id ? '#6b7cff' : '#14120f' }}>
+                                {getInitials(comment.user_name)}
+                              </div>
+                              <div>
+                                <div style={styles.commentName}>{comment.user_name}</div>
+                                <div style={styles.commentTime}>{formatTime(comment.created_at)}</div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div style={styles.commentMessage}>{comment.message}</div>
+
+                          <div style={styles.commentFooter}>
+                            <div style={styles.commentContext}>📍 Position: {Math.round(comment.scroll_position)}px</div>
+                            <button onClick={() => goToComment(comment)} style={styles.goToButton}>Go to position</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
-              {isOverViewer && !pendingPosition && !expandedComment && <div style={{ ...styles.cursor, left: cursorPos.x, top: cursorPos.y }}>+ Click to comment</div>}
             </div>
           )}
-        </section>
+        </div>
       </main>
     </div>
   )
@@ -388,7 +384,7 @@ export default function ViewerPage() {
 
 const styles: Record<string, React.CSSProperties> = {
   container: { minHeight: '100vh', backgroundColor: '#f6f2ea' },
-  header: { maxWidth: '1100px', margin: '0 auto', padding: '18px 16px 0' },
+  header: { maxWidth: '1400px', margin: '0 auto', padding: '18px 16px 0' },
   bar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' },
   logo: { fontWeight: 700, letterSpacing: '-0.02em', fontSize: '18px', textTransform: 'lowercase', color: '#14120f', textDecoration: 'none' },
   controls: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' },
@@ -404,43 +400,42 @@ const styles: Record<string, React.CSSProperties> = {
   segButtonBrowsingActive: { backgroundColor: 'rgba(20,18,15,0.9)', color: '#fff' },
   segButtonFeedbackActive: { backgroundColor: '#6b7cff', color: '#fff' },
   allCommentsBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', height: '34px', padding: '0 12px', borderRadius: '10px', border: '1px solid rgba(20,18,15,0.16)', backgroundColor: '#fff', color: '#14120f', fontSize: '13px', fontWeight: 500, cursor: 'pointer' },
-  mainCenter: { maxWidth: '1100px', margin: '0 auto', padding: '16px 20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 96px)' },
-  mainViewer: { maxWidth: '1100px', margin: '0 auto', padding: '16px 16px 24px' },
-  viewer: { 
-    position: 'relative', 
-    backgroundColor: '#fff', 
-    borderRadius: '14px', 
-    border: '2px solid rgba(20,18,15,0.25)', 
-    transition: 'border-color 0.2s',
-  },
-  overlay: { 
-    position: 'absolute', 
-    top: 0, 
-    left: 0, 
-    right: 0, 
-    cursor: 'crosshair', 
-    zIndex: 10 
-  },
-  pinContainer: { position: 'absolute', transform: 'translate(-50%, -50%)' },
-  pin: { width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, cursor: 'pointer', border: '2px solid #fff' },
-  pinMine: { backgroundColor: '#6b7cff', color: '#fff', boxShadow: '0 2px 8px rgba(107,124,255,0.4)' },
-  pinOther: { backgroundColor: '#14120f', color: '#fff', boxShadow: '0 2px 8px rgba(20,18,15,0.3)' },
-  pinExpanded: { transform: 'scale(1.1)', boxShadow: '0 4px 12px rgba(107,124,255,0.5)' },
-  commentCard: { position: 'absolute', padding: '14px', borderRadius: '12px', backgroundColor: '#fff', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: '1px solid rgba(20,18,15,0.1)' },
-  commentCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
-  commentCardName: { fontSize: '13px', fontWeight: 600, color: '#14120f' },
-  commentCardClose: { width: '22px', height: '22px', borderRadius: '6px', border: 'none', backgroundColor: 'rgba(20,18,15,0.06)', color: 'rgba(20,18,15,0.5)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' },
-  commentCardMessage: { fontSize: '13px', color: 'rgba(20,18,15,0.75)', lineHeight: 1.5 },
-  inputCard: { position: 'absolute', padding: '14px', borderRadius: '12px', backgroundColor: '#fff', boxShadow: '0 4px 24px rgba(0,0,0,0.18)', border: '1px solid rgba(107,124,255,0.3)' },
-  inputCardHeader: { marginBottom: '10px' },
-  inputCardName: { fontSize: '13px', fontWeight: 600, color: '#14120f' },
-  inputTextarea: { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(20,18,15,0.14)', backgroundColor: '#fafafa', fontSize: '13px', lineHeight: 1.5, resize: 'none', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' },
-  inputCardFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' },
-  inputHint: { fontSize: '11px', color: 'rgba(20,18,15,0.4)' },
-  inputActions: { display: 'flex', gap: '6px' },
-  cancelBtn: { padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(20,18,15,0.14)', backgroundColor: '#fff', color: 'rgba(20,18,15,0.6)', fontSize: '12px', cursor: 'pointer' },
-  sendBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '8px', border: 'none', backgroundColor: '#6b7cff', color: '#fff', cursor: 'pointer' },
-  cursor: { position: 'absolute', pointerEvents: 'none', padding: '5px 10px', borderRadius: '6px', backgroundColor: 'rgba(20,18,15,0.8)', color: '#fff', fontSize: '12px', fontWeight: 500, whiteSpace: 'nowrap', transform: 'translate(12px, 12px)', zIndex: 1000 },
+  mainCenter: { maxWidth: '1400px', margin: '0 auto', padding: '16px 20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 96px)' },
+  mainViewer: { maxWidth: '1400px', margin: '0 auto', padding: '16px 16px 24px' },
+  layout: { display: 'grid', gridTemplateColumns: '1fr 360px', gap: '20px' },
+  viewerContainer: { position: 'relative' },
+  viewer: { backgroundColor: '#fff', borderRadius: '14px', border: '2px solid rgba(20,18,15,0.25)', transition: 'border-color 0.2s', overflow: 'auto' },
+  floatingButton: { position: 'absolute', bottom: '24px', right: '24px', display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', backgroundColor: '#6b7cff', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 16px rgba(107,124,255,0.4)', transition: 'all 0.2s' },
+  commentFormOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '14px', zIndex: 100 },
+  commentForm: { width: '90%', maxWidth: '500px', backgroundColor: '#fff', borderRadius: '16px', padding: '20px', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' },
+  commentFormHeader: { marginBottom: '12px' },
+  commentFormTitle: { fontSize: '16px', fontWeight: 600, color: '#14120f', display: 'block', marginBottom: '4px' },
+  commentFormContext: { fontSize: '12px', color: 'rgba(20,18,15,0.5)' },
+  commentTextarea: { width: '100%', padding: '12px', border: '1px solid rgba(20,18,15,0.14)', borderRadius: '10px', fontSize: '14px', lineHeight: '1.5', resize: 'vertical', fontFamily: 'inherit', outline: 'none', backgroundColor: '#fafafa' },
+  commentFormFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' },
+  commentFormHint: { fontSize: '11px', color: 'rgba(20,18,15,0.4)' },
+  commentFormActions: { display: 'flex', gap: '8px' },
+  cancelButton: { padding: '8px 14px', border: '1px solid rgba(20,18,15,0.14)', borderRadius: '8px', backgroundColor: '#fff', color: 'rgba(20,18,15,0.7)', fontSize: '13px', fontWeight: 500, cursor: 'pointer' },
+  submitButton: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', border: 'none', borderRadius: '8px', backgroundColor: '#6b7cff', color: '#fff', cursor: 'pointer' },
+  panel: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid rgba(20,18,15,0.14)', overflow: 'hidden', height: 'fit-content', maxHeight: '800px', display: 'flex', flexDirection: 'column' },
+  panelHeader: { padding: '16px', borderBottom: '1px solid rgba(20,18,15,0.1)' },
+  panelToggle: { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 },
+  panelTitle: { fontSize: '15px', fontWeight: 600, color: '#14120f', flex: 1, textAlign: 'left' },
+  panelChevron: { color: 'rgba(20,18,15,0.5)', transition: 'transform 0.2s' },
+  panelContent: { flex: 1, overflow: 'auto' },
+  commentsList: { padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' },
+  commentCard: { padding: '14px', border: '1px solid', borderRadius: '12px', backgroundColor: '#fafafa' },
+  commentHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' },
+  commentAuthor: { display: 'flex', alignItems: 'center', gap: '10px' },
+  commentAvatar: { width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '11px', fontWeight: 700, flexShrink: 0 },
+  commentName: { fontSize: '13px', fontWeight: 600, color: '#14120f' },
+  commentTime: { fontSize: '11px', color: 'rgba(20,18,15,0.45)' },
+  commentMessage: { fontSize: '13px', lineHeight: '1.5', color: 'rgba(20,18,15,0.8)', marginBottom: '10px' },
+  commentFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid rgba(20,18,15,0.08)' },
+  commentContext: { fontSize: '11px', color: 'rgba(20,18,15,0.5)' },
+  goToButton: { padding: '6px 12px', border: '1px solid rgba(107,124,255,0.3)', borderRadius: '6px', backgroundColor: 'rgba(107,124,255,0.08)', color: '#6b7cff', fontSize: '12px', fontWeight: 500, cursor: 'pointer' },
+  emptyState: { padding: '60px 20px', textAlign: 'center', color: 'rgba(20,18,15,0.4)' },
+  emptyStateHint: { fontSize: '13px', marginTop: '8px' },
   loading: { fontSize: '16px', color: 'rgba(20,18,15,0.62)' },
   errorCard: { backgroundColor: '#fff', borderRadius: '14px', padding: '32px', textAlign: 'center', border: '1px solid rgba(20,18,15,0.14)', maxWidth: '400px' },
   errorTitle: { fontSize: '24px', fontWeight: 600, color: '#dc2626', marginBottom: '8px' },
@@ -448,7 +443,6 @@ const styles: Record<string, React.CSSProperties> = {
   backButton: { display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: 600, color: '#fff', backgroundColor: 'rgba(20,18,15,0.94)', borderRadius: '8px', textDecoration: 'none' },
   fullscreenContainer: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#fff', zIndex: 1000, overflow: 'auto' },
   fullscreenViewer: { position: 'relative', width: '100%', minHeight: '100%' },
-  fullscreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, cursor: 'crosshair', zIndex: 10 },
   exitFullscreenBtn: { position: 'fixed', top: '16px', right: '16px', display: 'inline-flex', alignItems: 'center', height: '34px', padding: '0 10px 0 12px', borderRadius: '10px', border: '1px solid rgba(20,18,15,0.16)', backgroundColor: '#fff', color: 'rgba(20,18,15,0.8)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', zIndex: 1001 },
   exitFullscreenText: { letterSpacing: '-0.01em' },
   exitFullscreenDivider: { width: '1px', height: '16px', backgroundColor: 'rgba(20,18,15,0.15)', margin: '0 10px' },

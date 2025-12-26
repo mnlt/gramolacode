@@ -17,8 +17,8 @@ export interface Comment {
   artifact_id: string
   user_id: string | null
   user_name: string
-  x_percent: number
-  y_percent: number
+  scroll_position: number
+  viewport_height: number
   message: string
   created_at: string
 }
