@@ -390,7 +390,6 @@ const styles: Record<string, React.CSSProperties> = {
   tableUserName: { fontWeight: 600, color: '#14120f', fontSize: '13px' },
   tableTime: { fontSize: '11px', color: 'rgba(20,18,15,0.45)' },
 }
-  const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
   
   const [artifact, setArtifact] = useState<Artifact | null>(null)
