@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef, useCallback, useState } from 'react'
+import React, { useMemo, useEffect, useRef, useCallback } from 'react'
 import {
   SandpackProvider,
   SandpackPreview,
@@ -220,7 +220,6 @@ function ReactRenderer({ code, onHeightChange }: {
     }
 
     onHeightChange?.(height)
-    setIsReady(true)
   }, [onHeightChange])
 
   // Intentar expandir periódicamente
